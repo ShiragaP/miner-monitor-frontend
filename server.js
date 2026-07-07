@@ -29,8 +29,15 @@ app.get('/api/stats', async (req, res) => {
     // Real API fetch
     const url = ip.startsWith('http') ? ip : `http://${ip}`;
     try {
-      const response = await axios.get(url, { timeout: 2500 });
-      return parseRigData(ip, response.data);
+      const response = await axios.get(url, { 
+        timeout: 2500,
+        headers: { 'Accept': 'application/json' }
+      });
+      const data = response.data;
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response format (not a JSON object)');
+      }
+      return parseRigData(ip, data);
     } catch (error) {
       return {
         ip,
@@ -52,7 +59,8 @@ app.get('/api/stats', async (req, res) => {
 // Robust parser to extract data matching various SRBMiner JSON schemas
 function parseRigData(ip, data) {
   const defaultName = `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
-  const name = data.rig_name || data.name || defaultName;
+  // Strictly use rig_name from JSON
+  const name = data.rig_name || defaultName;
 
   const rig = {
     ip: ip,
