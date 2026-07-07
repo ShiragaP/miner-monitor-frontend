@@ -163,7 +163,7 @@ function parseRigData(ip, data) {
     name: name,
     status: 'online',
     version: data.miner_version || 'Unknown',
-    uptime: data.uptime || 0,
+    uptime: data.mining_time !== undefined ? data.mining_time : (data.uptime || 0),
     hashrate_total: 0,
     max_temp: 0,
     gpus: []
@@ -173,21 +173,38 @@ function parseRigData(ip, data) {
 
   if (Array.isArray(devices)) {
     devices.forEach((dev, index) => {
-      const hashrate = typeof dev.hashrate === 'number' ? dev.hashrate : 
-                       (typeof dev.hash === 'number' ? dev.hash : 
-                       (typeof dev.hashrate_total === 'number' ? dev.hashrate_total : 0));
-
+      // Find temperature (handle temperature, temp)
       const temp = typeof dev.temperature === 'number' ? dev.temperature : 
                    (typeof dev.temp === 'number' ? dev.temp : 0);
 
-      const fan = typeof dev.fan_speed === 'number' ? dev.fan_speed : 
-                  (typeof dev.fan === 'number' ? dev.fan : 0);
+      // Find fan speed (handle fan_speed_percent, fan_speed, fan)
+      const fan = typeof dev.fan_speed_percent === 'number' ? dev.fan_speed_percent : 
+                  (typeof dev.fan_speed === 'number' ? dev.fan_speed : 
+                  (typeof dev.fan === 'number' ? dev.fan : 0));
 
-      const power = typeof dev.power === 'number' ? dev.power : 
-                    (typeof dev.power_usage === 'number' ? dev.power_usage : 0);
+      // Find power (handle asic_power, power, power_usage)
+      const power = typeof dev.asic_power === 'number' ? dev.asic_power : 
+                    (typeof dev.power === 'number' ? dev.power : 
+                    (typeof dev.power_usage === 'number' ? dev.power_usage : 0));
+
+      // Find GPU hashrate from the algorithms array if not present on device level
+      let hashrate = 0;
+      if (typeof dev.hashrate === 'number') {
+        hashrate = dev.hashrate;
+      } else if (typeof dev.hash === 'number') {
+        hashrate = dev.hash;
+      } else if (Array.isArray(data.algorithms)) {
+        // Sum hashrate for this specific GPU across all active algorithms
+        const gpuKey = dev.device || `gpu${dev.id !== undefined ? dev.id : index}`;
+        data.algorithms.forEach(algo => {
+          if (algo.hashrate && algo.hashrate.gpu && typeof algo.hashrate.gpu[gpuKey] === 'number') {
+            hashrate += algo.hashrate.gpu[gpuKey];
+          }
+        });
+      }
 
       const gpu = {
-        id: dev.device_id !== undefined ? dev.device_id : (dev.id !== undefined ? dev.id : index),
+        id: dev.id !== undefined ? dev.id : (dev.device_id !== undefined ? dev.device_id : index),
         model: dev.model || dev.name || `GPU #${index}`,
         hashrate: hashrate,
         temp: temp,
@@ -203,9 +220,24 @@ function parseRigData(ip, data) {
     });
   }
 
+  // Find total hashrate
   if (typeof data.hashrate_total === 'number' && data.hashrate_total > 0) {
     rig.hashrate_total = data.hashrate_total;
-  } else {
+  } else if (Array.isArray(data.algorithms)) {
+    // Sum GPU total hashrate across all active algorithms
+    let algoTotal = 0;
+    data.algorithms.forEach(algo => {
+      if (algo.hashrate && algo.hashrate.gpu && typeof algo.hashrate.gpu.total === 'number') {
+        algoTotal += algo.hashrate.gpu.total;
+      } else if (algo.hashrate && typeof algo.hashrate.total === 'number') {
+        algoTotal += algo.hashrate.total;
+      }
+    });
+    rig.hashrate_total = algoTotal;
+  }
+
+  // Fallback: sum individual parsed GPU hashrates
+  if (rig.hashrate_total === 0) {
     rig.hashrate_total = rig.gpus.reduce((sum, g) => sum + g.hashrate, 0);
   }
 
