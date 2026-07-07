@@ -20,87 +20,12 @@ const RIG_IPS = process.env.RIG_IPS
   ? process.env.RIG_IPS.split(',').map(ip => ip.trim())
   : DEFAULT_RIGS;
 
-const MOCK_MODE = process.env.MOCK_MODE === 'true';
-
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Mock data generator for testing purposes
-function generateMockRigData(ip, index) {
-  const rigNumber = ip.split('.').pop().split(':')[0]; // get last octet of IP
-  const uptime = Math.floor(Math.random() * 50000) + 10000;
-  
-  // Create 2 to 6 GPUs per rig
-  const gpuCount = (index % 3) + 3; // 3, 4, or 5 GPUs
-  const gpus = [];
-  let rigHashrate = 0;
-  
-  const gpuModels = [
-    'NVIDIA GeForce RTX 3070',
-    'NVIDIA GeForce RTX 3060 Ti',
-    'AMD Radeon RX 6700 XT',
-    'NVIDIA GeForce RTX 3080',
-    'AMD Radeon RX 580 Series'
-  ];
-  
-  const model = gpuModels[index % gpuModels.length];
-  const baseHashrate = model.includes('3080') ? 95000000 : 
-                       model.includes('3070') ? 61000000 :
-                       model.includes('6700') ? 47000000 :
-                       model.includes('3060') ? 45000000 : 30000000; // in H/s
-
-  for (let i = 0; i < gpuCount; i++) {
-    // Add small random fluctuations (+/- 1.5%) to hashrate
-    const fluctuation = 1 + (Math.random() * 0.03 - 0.015);
-    const hashrate = Math.floor(baseHashrate * fluctuation);
-    rigHashrate += hashrate;
-
-    // Fluctuating temp: 50C - 78C
-    const temp = Math.floor(60 + (Math.random() * 18 - 9) + (i * 2));
-    const fan = Math.floor(45 + (temp - 50) * 1.5);
-    const power = Math.floor((baseHashrate / 500000) + (Math.random() * 10 - 5));
-
-    gpus.push({
-      device_id: i,
-      model: `${model} (GPU #${i})`,
-      hashrate: hashrate,
-      temperature: Math.min(Math.max(temp, 35), 90),
-      fan_speed: Math.min(Math.max(fan, 30), 100),
-      power: power
-    });
-  }
-
-  return {
-    rig_name: `Rig-${rigNumber}`,
-    miner_version: '2.4.4',
-    uptime: uptime,
-    hashrate_total: rigHashrate,
-    gpu_devices: gpus
-  };
-}
 
 // API endpoint to fetch stats for all rigs
 app.get('/api/stats', async (req, res) => {
   const fetchPromises = RIG_IPS.map(async (ip, index) => {
-    // If mock mode is enabled, generate mock data immediately
-    if (MOCK_MODE) {
-      // Simulate network delay between 100ms and 500ms
-      await new Promise(resolve => setTimeout(resolve, Math.random() * 400 + 100));
-      
-      // Simulate random offline status for 123 occasionally (e.g. 10% chance)
-      if (ip.includes('123') && Math.random() < 0.1) {
-        return {
-          ip,
-          name: `Rig-${ip.split('.').pop().split(':')[0]}`,
-          status: 'offline',
-          error: 'Connection timed out'
-        };
-      }
-      
-      const mockData = generateMockRigData(ip, index);
-      return parseRigData(ip, mockData);
-    }
-
     // Real API fetch
     const url = ip.startsWith('http') ? ip : `http://${ip}`;
     try {
@@ -196,7 +121,7 @@ app.listen(PORT, () => {
   console.log(`==================================================`);
   console.log(`SRBMiner Monitor Dashboard Server started!`);
   console.log(`Port: ${PORT}`);
-  console.log(`Mode: ${MOCK_MODE ? 'MOCK / SIMULATOR' : 'LIVE API'}`);
+  console.log(`Mode: LIVE API`);
   console.log(`Configured Rigs: ${RIG_IPS.join(', ')}`);
   console.log(`==================================================`);
 });

@@ -22,7 +22,7 @@ This application aggregates stats from multiple rig endpoints on demand (on-page
 The easiest way to run the dashboard is with Docker Compose.
 
 1. **Clone the repository** (or copy the files to your target server).
-2. **Review configurations** in `docker-compose.yml`. By default, `MOCK_MODE` is set to `true` to show mock rigs.
+2. **Review configurations** in `docker-compose.yml` to specify your target rig IP addresses.
 3. **Start the container**:
    ```bash
    docker compose up -d
@@ -39,13 +39,7 @@ You can customize the monitoring behavior using environment variables. These can
 | Environment Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `RIG_IPS` | `192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550` | Comma-separated list of target SRBMiner API IP addresses and ports. |
-| `MOCK_MODE` | `true` | When `true`, simulates rig data (great for testing/preview). Set to `false` to poll real rigs on your network. |
 | `PORT` | `21551` | The port the Node.js application runs on. |
-
-To switch to **production/live monitoring**, simply change `MOCK_MODE=false` in the compose file and restart:
-```bash
-docker compose down && docker compose up -d
-```
 
 ---
 
@@ -73,7 +67,6 @@ If you wish to run the project locally without containerization:
    ```bash
    npm run dev
    ```
-   Or to run with live data (or mock mode):
-   ```bash
-   MOCK_MODE=true PORT=21551 npm run dev
+   ```
+   PORT=21551 npm run dev
    ```
