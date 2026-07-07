@@ -28,7 +28,7 @@ The easiest way to run the dashboard is with Docker Compose.
    docker compose up -d
    ```
 4. **Access the web dashboard** in your browser at:
-   `http://localhost:3000`
+   `http://localhost:21551`
 
 ---
 
@@ -40,7 +40,7 @@ You can customize the monitoring behavior using environment variables. These can
 | :--- | :--- | :--- |
 | `RIG_IPS` | `192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550` | Comma-separated list of target SRBMiner API IP addresses and ports. |
 | `MOCK_MODE` | `true` | When `true`, simulates rig data (great for testing/preview). Set to `false` to poll real rigs on your network. |
-| `PORT` | `3000` | The port the Node.js application runs on. |
+| `PORT` | `21551` | The port the Node.js application runs on. |
 
 To switch to **production/live monitoring**, simply change `MOCK_MODE=false` in the compose file and restart:
 ```bash
@@ -75,5 +75,5 @@ If you wish to run the project locally without containerization:
    ```
    Or to run with live data (or mock mode):
    ```bash
-   MOCK_MODE=true PORT=3000 npm run dev
+   MOCK_MODE=true PORT=21551 npm run dev
    ```

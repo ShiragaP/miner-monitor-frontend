@@ -6,7 +6,7 @@ services:
     container_name: miner-monitor
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "21551:21551"
     environment:
       # Comma-separated list of SRBMiner API IP addresses and ports.
       # You can modify this list directly without rebuilding the image.
@@ -17,4 +17,4 @@ services:
       - MOCK_MODE=true
       
       # Optional: Change the port the server listens on inside and outside
-      - PORT=3000
+      - PORT=21551

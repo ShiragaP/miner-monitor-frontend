@@ -16,10 +16,10 @@ COPY public/ ./public/
 
 # Set production environment defaults
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=21551
 
-# Expose port 3000 to the docker network
-EXPOSE 3000
+# Expose port 21551 to the docker network
+EXPOSE 21551
 
 # Run the backend server
 CMD ["node", "server.js"]
