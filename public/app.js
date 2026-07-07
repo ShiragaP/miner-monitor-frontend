@@ -65,6 +65,7 @@ function resetTimer() {
 }
 
 // Fetch stats from backend API
+// Fetch config and query rigs directly from client browser
 async function fetchStats() {
   isFetching = true;
   btnRefresh.classList.add('loading');
@@ -72,12 +73,59 @@ async function fetchStats() {
   statusText.textContent = 'Updating...';
 
   try {
-    const response = await fetch('/api/stats');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // 1. Get the list of rig IPs from server config
+    const configResponse = await fetch('/api/config');
+    if (!configResponse.ok) {
+      throw new Error(`Failed to load server config: ${configResponse.status}`);
     }
-    const data = await response.json();
-    updateUI(data);
+    const config = await configResponse.json();
+    const rigsList = config.rigs || [];
+
+    if (rigsList.length === 0) {
+      updateUI([]);
+      return;
+    }
+
+    // 2. Query each rig directly in parallel from the browser
+    const fetchPromises = rigsList.map(async (ip) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
+
+      const url = ip.startsWith('http') ? ip : `http://${ip}`;
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeoutId);
+
+        // Read body text first to perform strict JSON checks
+        const text = await response.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error('Response is not a valid JSON object');
+        }
+
+        if (!data || typeof data !== 'object') {
+          throw new Error('Invalid response format (not a JSON object)');
+        }
+
+        return parseRigData(ip, data);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        return {
+          ip,
+          name: `Rig-${ip.split('.').pop().split(':')[0] || ip}`,
+          status: 'offline',
+          error: error.name === 'AbortError' ? 'Connection timed out' : error.message
+        };
+      }
+    });
+
+    const results = await Promise.all(fetchPromises);
+    updateUI(results);
     
     headerStatusDot.className = 'status-dot';
     headerStatusDot.style.background = 'var(--color-online)';
@@ -92,9 +140,9 @@ async function fetchStats() {
     
     rigsGrid.innerHTML = `
       <div class="glass-panel" style="grid-column: 1 / -1; padding: 3rem; text-align: center; border-color: var(--color-offline);">
-        <div style="font-size: 1.25rem; font-weight: 500; color: var(--color-offline); margin-bottom: 0.5rem;">API Connection Failed</div>
+        <div style="font-size: 1.25rem; font-weight: 500; color: var(--color-offline); margin-bottom: 0.5rem;">Configuration Failed</div>
         <p style="font-size: 0.85rem; color: var(--text-secondary);">${error.message}</p>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 1rem;">Make sure the backend container is running and accessible.</p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 1rem;">Make sure the monitor web server is running and reachable.</p>
       </div>
     `;
   } finally {
@@ -102,6 +150,66 @@ async function fetchStats() {
     btnRefresh.classList.remove('loading');
     resetTimer();
   }
+}
+
+// Client-side parser to extract data matching SRBMiner JSON schemas
+function parseRigData(ip, data) {
+  const defaultName = `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
+  // Strictly use rig_name from JSON
+  const name = data.rig_name || defaultName;
+
+  const rig = {
+    ip: ip,
+    name: name,
+    status: 'online',
+    version: data.miner_version || 'Unknown',
+    uptime: data.uptime || 0,
+    hashrate_total: 0,
+    max_temp: 0,
+    gpus: []
+  };
+
+  const devices = data.gpu_devices || data.devices || data.gpus || [];
+
+  if (Array.isArray(devices)) {
+    devices.forEach((dev, index) => {
+      const hashrate = typeof dev.hashrate === 'number' ? dev.hashrate : 
+                       (typeof dev.hash === 'number' ? dev.hash : 
+                       (typeof dev.hashrate_total === 'number' ? dev.hashrate_total : 0));
+
+      const temp = typeof dev.temperature === 'number' ? dev.temperature : 
+                   (typeof dev.temp === 'number' ? dev.temp : 0);
+
+      const fan = typeof dev.fan_speed === 'number' ? dev.fan_speed : 
+                  (typeof dev.fan === 'number' ? dev.fan : 0);
+
+      const power = typeof dev.power === 'number' ? dev.power : 
+                    (typeof dev.power_usage === 'number' ? dev.power_usage : 0);
+
+      const gpu = {
+        id: dev.device_id !== undefined ? dev.device_id : (dev.id !== undefined ? dev.id : index),
+        model: dev.model || dev.name || `GPU #${index}`,
+        hashrate: hashrate,
+        temp: temp,
+        fan: fan,
+        power: power
+      };
+
+      rig.gpus.push(gpu);
+
+      if (temp > rig.max_temp) {
+        rig.max_temp = temp;
+      }
+    });
+  }
+
+  if (typeof data.hashrate_total === 'number' && data.hashrate_total > 0) {
+    rig.hashrate_total = data.hashrate_total;
+  } else {
+    rig.hashrate_total = rig.gpus.reduce((sum, g) => sum + g.hashrate, 0);
+  }
+
+  return rig;
 }
 
 // Format hashrate to human readable units (H/s, KH/s, MH/s, GH/s)
