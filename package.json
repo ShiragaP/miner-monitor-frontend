@@ -1,0 +1,17 @@
+{
+  "name": "miner-monitor-frontend",
+  "version": "1.0.0",
+  "description": "Simple webpage dashboard to summarize details from SRBMiner rigs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "author": "Antigravity",
+  "license": "MIT"
+}

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  miner-monitor:
+    build: .
+    container_name: miner-monitor
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Comma-separated list of SRBMiner API IP addresses and ports.
+      # You can modify this list directly without rebuilding the image.
+      - RIG_IPS=192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550
+      
+      # Set to 'true' to simulate mining rigs (useful for local testing/preview)
+      # Set to 'false' to poll actual mining rigs on your network.
+      - MOCK_MODE=true
+      
+      # Optional: Change the port the server listens on inside and outside
+      - PORT=3000

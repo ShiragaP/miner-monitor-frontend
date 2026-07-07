@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A lightweight, premium glassmorphism dashboard to monitor SRBMiner rigs, showing total hashrates, individual GPU temperatures, fan speeds, and online statuses.">
+  <title>SRBMiner Rig Monitor</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Favicon placeholder (inline SVG) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%237f56da%22/><text y=%2270%22 x=%2220%22 font-family=%22monospace%22 font-size=%2260%22 font-weight=%22bold%22 fill=%22white%22>SRB</text></svg>">
+</head>
+<body>
+  <div class="container">
+    
+    <!-- Header Section -->
+    <header class="glass-panel" id="main-header">
+      <div class="brand-section">
+        <div class="logo-container" id="brand-logo">
+          <div class="logo-icon">SRB</div>
+        </div>
+        <div class="brand-title">
+          <h1>SRBMiner Monitor</h1>
+          <p>Real-time statistics aggregator & hardware dashboard</p>
+        </div>
+      </div>
+      
+      <div class="controls">
+        <div class="status-indicator" id="status-display">
+          <span class="status-dot" id="header-status-dot"></span>
+          <span id="status-text">Connected</span>
+        </div>
+        
+        <button class="btn-refresh" id="btn-refresh-stats" aria-label="Refresh stats">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Overview Statistics Dashboard -->
+    <main>
+      <section aria-label="Global Statistics Overview">
+        <div class="summary-container">
+          
+          <!-- Rigs Online / Total -->
+          <div class="summary-card glass-panel" id="card-rigs-online">
+            <div class="summary-icon green">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                <line x1="6" y1="18" x2="6.01" y2="18"/>
+              </svg>
+            </div>
+            <div class="summary-details">
+              <span class="summary-label">Rigs Online</span>
+              <span class="summary-value" id="val-rigs-online">- / -</span>
+            </div>
+          </div>
+
+          <!-- Total Network Hashrate -->
+          <div class="summary-card glass-panel" id="card-total-hashrate">
+            <div class="summary-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+              </svg>
+            </div>
+            <div class="summary-details">
+              <span class="summary-label">Total Hashrate</span>
+              <span class="summary-value" id="val-total-hashrate">0.00 H/s</span>
+            </div>
+          </div>
+
+          <!-- Max GPU Temperature -->
+          <div class="summary-card glass-panel" id="card-max-temp">
+            <div class="summary-icon orange">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+              </svg>
+            </div>
+            <div class="summary-details">
+              <span class="summary-label">Max GPU Temp</span>
+              <span class="summary-value" id="val-max-temp">0°C</span>
+            </div>
+          </div>
+
+          <!-- Total GPUs Detected -->
+          <div class="summary-card glass-panel" id="card-total-gpus">
+            <div class="summary-icon" style="color: var(--color-neon-purple)">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+              </svg>
+            </div>
+            <div class="summary-details">
+              <span class="summary-label">Total GPUs</span>
+              <span class="summary-value" id="val-total-gpus">0</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Rigs Detail Grid -->
+      <section aria-labelledby="rigs-section-header">
+        <div class="section-title">
+          <h2 id="rigs-section-header">Mining Rigs</h2>
+          <span id="badge-total-rigs-count">0 Rigs</span>
+        </div>
+        
+        <!-- Individual rig cards will be dynamically injected here by app.js -->
+        <div class="rigs-grid" id="rigs-grid-container">
+          <div class="glass-panel" style="grid-column: 1 / -1; padding: 3rem; text-align: center; color: var(--text-secondary);">
+            <div style="font-size: 1.25rem; font-weight: 500; margin-bottom: 0.5rem;">Loading Rig Configurations...</div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Fetching details from miner endpoints</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer Status -->
+    <footer style="margin-top: 4rem; text-align: center; color: var(--text-muted); font-size: 0.8rem; border-top: 1px solid rgba(255, 255, 255, 0.03); padding-top: 1.5rem;">
+      <p>Auto-refreshing in <span id="val-timer" style="color: var(--text-secondary); font-weight: 600;">10s</span>. Powered by SRBMiner-Multi API.</p>
+      <p style="margin-top: 0.5rem; opacity: 0.7;">No database deployment &bull; Direct API query reverse proxy</p>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
