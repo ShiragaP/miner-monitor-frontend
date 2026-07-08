@@ -327,6 +327,7 @@ function updateUI(rigs) {
   
   rigs.forEach(rig => {
     const isOnline = rig.status === 'online';
+    const rigId = `rig-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
     const card = document.createElement('article');
     card.className = `rig-card glass-panel ${isOnline ? '' : 'offline-rig'}`;
     card.id = `rig-card-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
@@ -349,8 +350,10 @@ function updateUI(rigs) {
     `;
 
     if (isOnline) {
-      // GPU statistics quick overview inside the card
       const tempClass = getTempSimpleClass(rig.max_temp);
+      const totalPower = rig.gpus.reduce((sum, g) => sum + g.power, 0);
+      const gpusListId = `gpus-list-${rigId}`;
+
       cardInnerHtml += `
         <div class="rig-quick-stats">
           <div class="quick-stat-box">
@@ -361,12 +364,26 @@ function updateUI(rigs) {
             <span class="quick-stat-label">Max GPU Temp</span>
             <span class="quick-stat-value temp ${tempClass}">${rig.max_temp}°C</span>
           </div>
+          <div class="quick-stat-box">
+            <span class="quick-stat-label">Total Power</span>
+            <span class="quick-stat-value" style="color: var(--color-warning);">${totalPower}W</span>
+          </div>
+          <div class="quick-stat-box">
+            <span class="quick-stat-label">GPUs</span>
+            <span class="quick-stat-value" style="color: var(--color-neon-purple);">${rig.gpus.length}</span>
+          </div>
         </div>
 
-        <div class="gpus-list">
+        <button class="gpus-toggle-btn" onclick="toggleGpuList('${gpusListId}', this)" aria-expanded="false">
+          <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          <span>Show GPUs</span>
+        </button>
+
+        <div class="gpus-list collapsed" id="${gpusListId}">
       `;
 
-      // Render individual GPUs
       if (Array.isArray(rig.gpus) && rig.gpus.length > 0) {
         rig.gpus.forEach(gpu => {
           const gpuTempClass = getTempClass(gpu.temp);
@@ -383,6 +400,10 @@ function updateUI(rigs) {
               <div class="gpu-stat-col">
                 <span class="gpu-stat-label">Fan</span>
                 <span class="gpu-stat-val" style="color: var(--text-primary);">${gpu.fan}%</span>
+              </div>
+              <div class="gpu-stat-col">
+                <span class="gpu-stat-label">Power</span>
+                <span class="gpu-stat-val" style="color: var(--color-warning);">${gpu.power}W</span>
               </div>
               <div class="gpu-stat-col">
                 <span class="gpu-stat-label">Hashrate</span>
@@ -417,3 +438,22 @@ function updateUI(rigs) {
     rigsGrid.appendChild(card);
   });
 }
+
+// Toggle GPU list visibility
+function toggleGpuList(listId, btn) {
+  const list = document.getElementById(listId);
+  if (!list) return;
+  const isCollapsed = list.classList.contains('collapsed');
+  if (isCollapsed) {
+    list.classList.remove('collapsed');
+    btn.setAttribute('aria-expanded', 'true');
+    btn.querySelector('span').textContent = 'Hide GPUs';
+    btn.querySelector('.chevron-icon').style.transform = 'rotate(180deg)';
+  } else {
+    list.classList.add('collapsed');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.querySelector('span').textContent = 'Show GPUs';
+    btn.querySelector('.chevron-icon').style.transform = 'rotate(0deg)';
+  }
+}
+
