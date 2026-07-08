@@ -247,8 +247,8 @@ function parseRigData(ip, data) {
 // Format hashrate to human readable units (H/s, KH/s, MH/s, GH/s)
 function formatHashrate(hashrate) {
   if (hashrate === 0 || !hashrate) return '0.00 H/s';
-  const units = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s'];
-  const i = Math.floor(Math.log(hashrate) / Math.log(1000));
+  const units = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s'];
+  const i = Math.min(Math.floor(Math.log(hashrate) / Math.log(1000)), units.length - 1);
   const val = hashrate / Math.pow(1000, i);
   return `${val.toFixed(2)} ${units[i]}`;
 }
