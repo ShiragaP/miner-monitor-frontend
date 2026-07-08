@@ -373,6 +373,34 @@ function updateUI(rigs) {
       const totalPower = rig.gpus.reduce((sum, g) => sum + g.power, 0);
       const gpusListId = `gpus-list-${rigId}`;
 
+      // Per-rig economics (uses cached marketData)
+      let rigEconomicsHtml = '';
+      if (marketData && marketData.btc_revenue_per_1000ths && marketData.btc_thb) {
+        const rigTHs = rig.hashrate_total / 1e12;
+        const rigBtcDay = marketData.btc_revenue_per_1000ths * (rigTHs / 1000);
+        const rigRevenue = rigBtcDay * marketData.btc_thb;
+        const rigCost = (totalPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+        const rigProfit = rigRevenue - rigCost;
+        const fmtTHB = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
+        rigEconomicsHtml = `
+          <div class="rig-economics-row">
+            <div class="rig-econ-item">
+              <span class="rig-econ-label">Revenue/day</span>
+              <span class="rig-econ-val" style="color: var(--color-online);">฿${fmtTHB(rigRevenue)}</span>
+            </div>
+            <div class="rig-econ-item">
+              <span class="rig-econ-label">Cost/day</span>
+              <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmtTHB(rigCost)}</span>
+            </div>
+            <div class="rig-econ-item">
+              <span class="rig-econ-label">Profit/day</span>
+              <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmtTHB(Math.abs(rigProfit))}</span>
+            </div>
+          </div>
+        `;
+      }
+
       cardInnerHtml += `
         <div class="rig-quick-stats">
           <div class="quick-stat-box">
@@ -392,6 +420,8 @@ function updateUI(rigs) {
             <span class="quick-stat-value" style="color: var(--color-neon-purple);">${rig.gpus.length}</span>
           </div>
         </div>
+
+        ${rigEconomicsHtml}
 
         <button class="gpus-toggle-btn" onclick="toggleGpuList('${gpusListId}', this)" aria-expanded="false">
           <svg class="chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
