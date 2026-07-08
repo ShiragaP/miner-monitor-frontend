@@ -373,33 +373,9 @@ function updateUI(rigs) {
       const totalPower = rig.gpus.reduce((sum, g) => sum + g.power, 0);
       const gpusListId = `gpus-list-${rigId}`;
 
-      // Per-rig economics (uses cached marketData)
-      let rigEconomicsHtml = '';
-      if (marketData && marketData.btc_revenue_per_1000ths && marketData.btc_thb) {
-        const rigTHs = rig.hashrate_total / 1e12;
-        const rigBtcDay = marketData.btc_revenue_per_1000ths * (rigTHs / 1000);
-        const rigRevenue = rigBtcDay * marketData.btc_thb;
-        const rigCost = (totalPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
-        const rigProfit = rigRevenue - rigCost;
-        const fmtTHB = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-        const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
-        rigEconomicsHtml = `
-          <div class="rig-economics-row">
-            <div class="rig-econ-item">
-              <span class="rig-econ-label">Revenue/day</span>
-              <span class="rig-econ-val" style="color: var(--color-online);">฿${fmtTHB(rigRevenue)}</span>
-            </div>
-            <div class="rig-econ-item">
-              <span class="rig-econ-label">Cost/day</span>
-              <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmtTHB(rigCost)}</span>
-            </div>
-            <div class="rig-econ-item">
-              <span class="rig-econ-label">Profit/day</span>
-              <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmtTHB(Math.abs(rigProfit))}</span>
-            </div>
-          </div>
-        `;
-      }
+      // Always render a placeholder container for per-rig economics
+      // This will be populated dynamically by updateEconomics once marketData is fetched
+      let rigEconomicsHtml = `<div class="rig-economics-wrapper" id="econ-wrapper-${rigId}"></div>`;
 
       cardInnerHtml += `
         <div class="rig-quick-stats">
@@ -584,4 +560,40 @@ function updateEconomics(rigs) {
   } else {
     elEconBadge.textContent = 'WhatToMine + CoinGecko';
   }
+
+  // Update per-rig economics placeholders in parallel
+  rigs.forEach(rig => {
+    if (rig.status !== 'online') return;
+    
+    const rigId = `rig-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
+    const wrapper = document.getElementById(`econ-wrapper-${rigId}`);
+    if (!wrapper) return;
+
+    const rigPower = rig.gpus.reduce((sum, g) => sum + (g.power || 0), 0);
+    const rigTHs = rig.hashrate_total / 1e12;
+    const rigBtcDay = btc_revenue_per_1000ths * (rigTHs / 1000);
+    const rigRevenue = rigBtcDay * btc_thb;
+    const rigCost = (rigPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+    const rigProfit = rigRevenue - rigCost;
+
+    const fmtTHB = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
+
+    wrapper.innerHTML = `
+      <div class="rig-economics-row">
+        <div class="rig-econ-item">
+          <span class="rig-econ-label">Revenue/day</span>
+          <span class="rig-econ-val" style="color: var(--color-online);">฿${fmtTHB(rigRevenue)}</span>
+        </div>
+        <div class="rig-econ-item">
+          <span class="rig-econ-label">Cost/day</span>
+          <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmtTHB(rigCost)}</span>
+        </div>
+        <div class="rig-econ-item">
+          <span class="rig-econ-label">Profit/day</span>
+          <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmtTHB(Math.abs(rigProfit))}</span>
+        </div>
+      </div>
+    `;
+  });
 }
