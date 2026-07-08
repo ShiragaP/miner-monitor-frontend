@@ -1,7 +1,7 @@
 // SRBMiner Rig Monitor Frontend Script
 
 // Global state
-let countdownSeconds = 10;
+let countdownSeconds = 300;
 let refreshIntervalId = null;
 let countdownIntervalId = null;
 let isFetching = false;
@@ -38,8 +38,8 @@ function startTimers() {
   if (refreshIntervalId) clearInterval(refreshIntervalId);
   if (countdownIntervalId) clearInterval(countdownIntervalId);
 
-  countdownSeconds = 10;
-  timerVal.textContent = `${countdownSeconds}s`;
+  countdownSeconds = 300;
+  timerVal.textContent = formatCountdown(countdownSeconds);
 
   // Countdown timer loop (updates every second)
   countdownIntervalId = setInterval(() => {
@@ -47,20 +47,27 @@ function startTimers() {
     if (countdownSeconds <= 0) {
       timerVal.textContent = 'Refreshing...';
     } else {
-      timerVal.textContent = `${countdownSeconds}s`;
+      timerVal.textContent = formatCountdown(countdownSeconds);
     }
   }, 1000);
 
-  // Stats polling interval (every 10 seconds)
+  // Stats polling interval (every 5 minutes)
   refreshIntervalId = setInterval(() => {
     fetchStats();
-  }, 10000);
+  }, 300000);
+}
+
+// Format countdown seconds as mm:ss
+function formatCountdown(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 // Reset timer state after fetch
 function resetTimer() {
-  countdownSeconds = 10;
-  timerVal.textContent = `${countdownSeconds}s`;
+  countdownSeconds = 300;
+  timerVal.textContent = formatCountdown(countdownSeconds);
   startTimers();
 }
 
