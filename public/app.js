@@ -509,7 +509,7 @@ function updateEconomics(rigs) {
     return;
   }
 
-  const { btc_revenue_per_1000hs = 0, btc_thb = 0, coin_name = '', algorithm = '' } = marketData;
+  const { btc_revenue_per_1000ths = 0, btc_thb = 0, coin_name = '', algorithm = '' } = marketData;
 
   // Total hashrate across all online rigs (in H/s)
   const totalHashrateHs = rigs.reduce((sum, r) => sum + (r.status === 'online' ? r.hashrate_total : 0), 0);
@@ -521,7 +521,10 @@ function updateEconomics(rigs) {
   }, 0);
 
   // Revenue (THB / day)
-  const btcPerDay = btc_revenue_per_1000hs * (totalHashrateHs / 1000);
+  // WhatToMine hr=1000 is in TH/s → btc_revenue covers 1,000 TH/s (= 1×10¹⁵ H/s)
+  // Convert our H/s total → TH/s, then scale against the 1000-TH/s baseline
+  const totalHashrateTHs = totalHashrateHs / 1e12;
+  const btcPerDay = btc_revenue_per_1000ths * (totalHashrateTHs / 1000);
   const revenueTHB = btcPerDay * btc_thb;
 
   // Cost (THB / day): W → kW, × 24h, × rate

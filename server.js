@@ -46,7 +46,7 @@ app.get('/api/market', async (req, res) => {
     const cgData = await cgRes.json();
 
     res.json({
-      btc_revenue_per_1000hs: wtmData.btc_revenue ?? 0,
+      btc_revenue_per_1000ths: wtmData.btc_revenue ?? 0,  // per 1000 TH/s
       coin_name: wtmData.name ?? 'Unknown',
       algorithm: wtmData.algorithm ?? 'Unknown',
       btc_thb: cgData?.bitcoin?.thb ?? 0
