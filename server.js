@@ -27,6 +27,36 @@ app.get('/api/config', (req, res) => {
   res.json({ rigs: RIG_IPS });
 });
 
+// Market data proxy — avoids CORS issues fetching WhatToMine and CoinGecko from the browser
+app.get('/api/market', async (req, res) => {
+  try {
+    const [wtmRes, cgRes] = await Promise.all([
+      fetch('https://whattomine.com/coins/469.json?hr=1000&fee=3', {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'MinerMonitor/1.0' }
+      }),
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=thb', {
+        headers: { 'Accept': 'application/json' }
+      })
+    ]);
+
+    if (!wtmRes.ok) throw new Error(`WhatToMine error: ${wtmRes.status}`);
+    if (!cgRes.ok) throw new Error(`CoinGecko error: ${cgRes.status}`);
+
+    const wtmData = await wtmRes.json();
+    const cgData = await cgRes.json();
+
+    res.json({
+      btc_revenue_per_1000hs: wtmData.btc_revenue ?? 0,
+      coin_name: wtmData.name ?? 'Unknown',
+      algorithm: wtmData.algorithm ?? 'Unknown',
+      btc_thb: cgData?.bitcoin?.thb ?? 0
+    });
+  } catch (err) {
+    console.error('Market API error:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // Fallback all other routes to index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

@@ -5,6 +5,7 @@ let countdownSeconds = 300;
 let refreshIntervalId = null;
 let countdownIntervalId = null;
 let isFetching = false;
+let marketData = null; // cached market data (btc_revenue_per_1000hs, btc_thb)
 
 // DOM Elements
 const btnRefresh = document.getElementById('btn-refresh-stats');
@@ -20,9 +21,19 @@ const elTotalGpus = document.getElementById('val-total-gpus');
 const badgeTotalRigs = document.getElementById('badge-total-rigs-count');
 const rigsGrid = document.getElementById('rigs-grid-container');
 
+// Economics DOM
+const elRevenue = document.getElementById('val-revenue');
+const elRevenueBtc = document.getElementById('val-revenue-btc');
+const elCost = document.getElementById('val-cost');
+const elCostKwh = document.getElementById('val-cost-kwh');
+const elProfit = document.getElementById('val-profit');
+const elProfitNote = document.getElementById('val-profit-note');
+const elEconBadge = document.getElementById('badge-economics-source');
+
 // Initialize app
 window.addEventListener('DOMContentLoaded', () => {
   fetchStats();
+  fetchMarket();
   startTimers();
   
   btnRefresh.addEventListener('click', () => {
@@ -133,6 +144,7 @@ async function fetchStats() {
 
     const results = await Promise.all(fetchPromises);
     updateUI(results);
+    updateEconomics(results);
     
     headerStatusDot.className = 'status-dot';
     headerStatusDot.style.background = 'var(--color-online)';
@@ -464,3 +476,79 @@ function toggleGpuList(listId, btn) {
   }
 }
 
+// =============================================
+// Market Data — fetched via server-side proxy
+// =============================================
+
+async function fetchMarket() {
+  try {
+    const res = await fetch('/api/market');
+    if (!res.ok) throw new Error(`Market API error: ${res.status}`);
+    marketData = await res.json();
+  } catch (err) {
+    console.warn('Could not fetch market data:', err.message);
+    marketData = null;
+  }
+}
+
+// =============================================
+// Economics — Revenue / Cost / Profit (THB/day)
+// =============================================
+// Revenue  = btc_revenue_per_1000hs (BTC/day for 1000 H/s)
+//            × (totalHashrate / 1000)
+//            × btc_thb
+// Cost     = totalPower (W) / 1000 × 24h × 4.5 THB/kWh
+// Profit   = Revenue − Cost
+
+const ELECTRICITY_RATE_THB_PER_KWH = 4.5;
+
+function updateEconomics(rigs) {
+  // Wait for market data — if not yet loaded, fetch first then retry
+  if (!marketData) {
+    fetchMarket().then(() => updateEconomics(rigs));
+    return;
+  }
+
+  const { btc_revenue_per_1000hs = 0, btc_thb = 0, coin_name = '', algorithm = '' } = marketData;
+
+  // Total hashrate across all online rigs (in H/s)
+  const totalHashrateHs = rigs.reduce((sum, r) => sum + (r.status === 'online' ? r.hashrate_total : 0), 0);
+
+  // Total power across all online rigs (in Watts)
+  const totalPowerW = rigs.reduce((sum, r) => {
+    if (r.status !== 'online' || !Array.isArray(r.gpus)) return sum;
+    return sum + r.gpus.reduce((s, g) => s + (g.power || 0), 0);
+  }, 0);
+
+  // Revenue (THB / day)
+  const btcPerDay = btc_revenue_per_1000hs * (totalHashrateHs / 1000);
+  const revenueTHB = btcPerDay * btc_thb;
+
+  // Cost (THB / day): W → kW, × 24h, × rate
+  const costTHB = (totalPowerW / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+
+  // Profit
+  const profitTHB = revenueTHB - costTHB;
+
+  const fmt = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Update Revenue card
+  elRevenue.textContent = `฿${fmt(revenueTHB)}`;
+  elRevenueBtc.textContent = `${btcPerDay.toFixed(8)} BTC/day  ·  1 BTC = ฿${btc_thb.toLocaleString('th-TH')}`;
+
+  // Update Cost card
+  elCost.textContent = `฿${fmt(costTHB)}`;
+  elCostKwh.textContent = `${(totalPowerW / 1000).toFixed(2)} kW × 24h × ฿${ELECTRICITY_RATE_THB_PER_KWH}/kWh`;
+
+  // Update Profit card
+  elProfit.textContent = `${profitTHB >= 0 ? '' : '−'}฿${fmt(Math.abs(profitTHB))}`;
+  elProfit.classList.toggle('negative', profitTHB < 0);
+  elProfitNote.textContent = profitTHB >= 0 ? 'After electricity cost' : 'Operating at a loss';
+
+  // Update badge
+  if (coin_name && algorithm) {
+    elEconBadge.textContent = `${coin_name} · ${algorithm} · WhatToMine + CoinGecko`;
+  } else {
+    elEconBadge.textContent = 'WhatToMine + CoinGecko';
+  }
+}

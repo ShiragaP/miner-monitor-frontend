@@ -590,3 +590,110 @@ header {
     justify-content: space-between;
   }
 }
+
+/* =============================================
+   Daily Economics Section
+   ============================================= */
+
+.economics-source-badge {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.economics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 768px) {
+  .economics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.economics-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.5rem 1.75rem;
+  border-radius: var(--radius-lg);
+  transition: var(--transition-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.economics-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.economics-card:hover::before { opacity: 1; }
+
+.economics-card.revenue::before {
+  background: radial-gradient(circle at 0% 50%, rgba(0, 255, 170, 0.06) 0%, transparent 70%);
+}
+.economics-card.cost::before {
+  background: radial-gradient(circle at 0% 50%, rgba(255, 184, 0, 0.06) 0%, transparent 70%);
+}
+.economics-card.profit::before {
+  background: radial-gradient(circle at 0% 50%, rgba(0, 210, 255, 0.06) 0%, transparent 70%);
+}
+
+.econ-icon {
+  font-size: 2rem;
+  width: 3rem;
+  height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.econ-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.econ-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.econ-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: var(--font-display);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.economics-card.revenue .econ-value { color: var(--color-online); }
+.economics-card.cost .econ-value    { color: var(--color-warning); }
+.economics-card.profit .econ-value  { color: var(--color-neon-blue); }
+.economics-card.profit .econ-value.negative { color: var(--color-offline); }
+
+.econ-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
