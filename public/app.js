@@ -5,7 +5,9 @@ let countdownSeconds = 300;
 let refreshIntervalId = null;
 let countdownIntervalId = null;
 let isFetching = false;
-let marketData = null; // cached market data (btc_revenue_per_1000hs, btc_thb)
+let marketData = null; // cached market data (btc_revenue_per_1000ths, btc_thb, etc.)
+let lastRigResults = null; // stored rig results to re-run economics when market data updates
+let isFetchingMarket = false; // market fetch in-flight flag
 
 // DOM Elements
 const btnRefresh = document.getElementById('btn-refresh-stats');
@@ -39,6 +41,7 @@ window.addEventListener('DOMContentLoaded', () => {
   btnRefresh.addEventListener('click', () => {
     if (!isFetching) {
       fetchStats();
+      fetchMarket();
     }
   });
 });
@@ -65,6 +68,7 @@ function startTimers() {
   // Stats polling interval (every 5 minutes)
   refreshIntervalId = setInterval(() => {
     fetchStats();
+    fetchMarket();
   }, 300000);
 }
 
@@ -143,6 +147,7 @@ async function fetchStats() {
     });
 
     const results = await Promise.all(fetchPromises);
+    lastRigResults = results;
     updateUI(results);
     updateEconomics(results);
     
@@ -487,21 +492,35 @@ function toggleGpuList(listId, btn) {
 // =============================================
 
 async function fetchMarket() {
+  if (isFetchingMarket) return;
+  isFetchingMarket = true;
+
   try {
     const res = await fetch('/api/market');
     if (!res.ok) throw new Error(`Market API error: ${res.status}`);
-    marketData = await res.json();
+    const data = await res.json();
+    marketData = data;
+
+    // Immediately update economics if rig data is already loaded
+    if (lastRigResults && Array.isArray(lastRigResults)) {
+      updateEconomics(lastRigResults);
+    }
   } catch (err) {
     console.warn('Could not fetch market data:', err.message);
-    marketData = null;
+    // If we have no market data at all, reflect in badge
+    if (!marketData) {
+      elEconBadge.textContent = 'Market data offline (retrying...)';
+    }
+  } finally {
+    isFetchingMarket = false;
   }
 }
 
 // =============================================
 // Economics — Revenue / Cost / Profit (THB/day)
 // =============================================
-// Revenue  = btc_revenue_per_1000hs (BTC/day for 1000 H/s)
-//            × (totalHashrate / 1000)
+// Revenue  = btc_revenue_per_1000ths (BTC/day for 1000 TH/s)
+//            × (totalHashrate / 1000 TH/s)
 //            × btc_thb
 // Cost     = totalPower (W) / 1000 × 24h × 4.5 THB/kWh
 // Profit   = Revenue − Cost
@@ -509,22 +528,54 @@ async function fetchMarket() {
 const ELECTRICITY_RATE_THB_PER_KWH = 4.5;
 
 function updateEconomics(rigs) {
-  // Wait for market data — if not yet loaded, fetch first then retry
-  if (!marketData) {
-    fetchMarket().then(() => updateEconomics(rigs));
-    return;
+  if (Array.isArray(rigs)) {
+    lastRigResults = rigs;
+  } else {
+    rigs = lastRigResults || [];
   }
 
-  const { btc_revenue_per_1000ths = 0, btc_thb = 0, coin_name = '', algorithm = '' } = marketData;
+  const fmt = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt0 = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   // Total hashrate across all online rigs (in H/s)
-  const totalHashrateHs = rigs.reduce((sum, r) => sum + (r.status === 'online' ? r.hashrate_total : 0), 0);
+  const totalHashrateHs = rigs.reduce((sum, r) => sum + (r.status === 'online' ? (r.hashrate_total || 0) : 0), 0);
 
   // Total power across all online rigs (in Watts)
   const totalPowerW = rigs.reduce((sum, r) => {
     if (r.status !== 'online' || !Array.isArray(r.gpus)) return sum;
     return sum + r.gpus.reduce((s, g) => s + (g.power || 0), 0);
   }, 0);
+
+  // Cost (THB / day): W → kW, × 24h, × rate
+  // This is ALWAYS calculated from telemetry, regardless of market API status
+  const costTHB = (totalPowerW / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+
+  // Update Cost card
+  elCost.textContent = `฿${fmt(costTHB)}`;
+  elCostKwh.textContent = `${(totalPowerW / 1000).toFixed(2)} kW × 24h × ฿${ELECTRICITY_RATE_THB_PER_KWH}/kWh`;
+
+  // Wait for market data — if not yet loaded, trigger fetch once without recursive loop
+  if (!marketData) {
+    if (!isFetchingMarket) {
+      fetchMarket();
+    }
+    elRevenue.textContent = '— ฿';
+    elRevenueBtc.textContent = 'Awaiting market rates...';
+    elProfit.textContent = '— ฿';
+    elProfit.classList.remove('negative');
+    elProfitNote.textContent = 'Awaiting market data';
+    elEconBadge.textContent = 'Connecting to Market...';
+    return;
+  }
+
+  const {
+    btc_revenue_per_1000ths = 0,
+    btc_thb = 0,
+    coin_name = 'Pearl',
+    algorithm = 'Pearl',
+    btc_source = 'CoinGecko',
+    is_stale = false
+  } = marketData;
 
   // Revenue (THB / day)
   // WhatToMine hr=1000 is in TH/s → btc_revenue covers 1,000 TH/s (= 1×10¹⁵ H/s)
@@ -533,21 +584,12 @@ function updateEconomics(rigs) {
   const btcPerDay = btc_revenue_per_1000ths * (totalHashrateTHs / 1000);
   const revenueTHB = btcPerDay * btc_thb;
 
-  // Cost (THB / day): W → kW, × 24h, × rate
-  const costTHB = (totalPowerW / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
-
   // Profit
   const profitTHB = revenueTHB - costTHB;
 
-  const fmt = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   // Update Revenue card
   elRevenue.textContent = `฿${fmt(revenueTHB)}`;
-  elRevenueBtc.textContent = `${btcPerDay.toFixed(8)} BTC/day  ·  1 BTC = ฿${btc_thb.toLocaleString('th-TH')}`;
-
-  // Update Cost card
-  elCost.textContent = `฿${fmt(costTHB)}`;
-  elCostKwh.textContent = `${(totalPowerW / 1000).toFixed(2)} kW × 24h × ฿${ELECTRICITY_RATE_THB_PER_KWH}/kWh`;
+  elRevenueBtc.textContent = `${btcPerDay.toFixed(8)} BTC/day  ·  1 BTC = ฿${Number(btc_thb).toLocaleString('th-TH')}`;
 
   // Update Profit card
   elProfit.textContent = `${profitTHB >= 0 ? '' : '−'}฿${fmt(Math.abs(profitTHB))}`;
@@ -555,10 +597,12 @@ function updateEconomics(rigs) {
   elProfitNote.textContent = profitTHB >= 0 ? 'After electricity cost' : 'Operating at a loss';
 
   // Update badge
+  const sourceText = `WhatToMine + ${btc_source || 'CoinGecko'}`;
+  const staleTag = is_stale ? ' · (Cached)' : '';
   if (coin_name && algorithm) {
-    elEconBadge.textContent = `${coin_name} · ${algorithm} · WhatToMine + CoinGecko`;
+    elEconBadge.textContent = `${coin_name} · ${algorithm} · ${sourceText}${staleTag}`;
   } else {
-    elEconBadge.textContent = 'WhatToMine + CoinGecko';
+    elEconBadge.textContent = `${sourceText}${staleTag}`;
   }
 
   // Update per-rig economics placeholders in parallel
@@ -569,29 +613,28 @@ function updateEconomics(rigs) {
     const wrapper = document.getElementById(`econ-wrapper-${rigId}`);
     if (!wrapper) return;
 
-    const rigPower = rig.gpus.reduce((sum, g) => sum + (g.power || 0), 0);
-    const rigTHs = rig.hashrate_total / 1e12;
+    const rigPower = (rig.gpus || []).reduce((sum, g) => sum + (g.power || 0), 0);
+    const rigTHs = (rig.hashrate_total || 0) / 1e12;
     const rigBtcDay = btc_revenue_per_1000ths * (rigTHs / 1000);
     const rigRevenue = rigBtcDay * btc_thb;
     const rigCost = (rigPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
     const rigProfit = rigRevenue - rigCost;
 
-    const fmtTHB = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
 
     wrapper.innerHTML = `
       <div class="rig-economics-row">
         <div class="rig-econ-item">
           <span class="rig-econ-label">Revenue/day</span>
-          <span class="rig-econ-val" style="color: var(--color-online);">฿${fmtTHB(rigRevenue)}</span>
+          <span class="rig-econ-val" style="color: var(--color-online);">฿${fmt0(rigRevenue)}</span>
         </div>
         <div class="rig-econ-item">
           <span class="rig-econ-label">Cost/day</span>
-          <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmtTHB(rigCost)}</span>
+          <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmt0(rigCost)}</span>
         </div>
         <div class="rig-econ-item">
           <span class="rig-econ-label">Profit/day</span>
-          <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmtTHB(Math.abs(rigProfit))}</span>
+          <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmt0(Math.abs(rigProfit))}</span>
         </div>
       </div>
     `;

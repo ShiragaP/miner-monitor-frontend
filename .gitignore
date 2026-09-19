@@ -14,3 +14,7 @@ npm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Cache files
+.market_cache.json
+
