@@ -113,7 +113,8 @@ async function fetchStats() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
 
-      const url = ip.startsWith('http') ? ip : `http://${ip}`;
+      const targetIp = ip.includes(':') ? ip : `${ip}:21550`;
+      const url = targetIp.startsWith('http') ? targetIp : `http://${targetIp}`;
       try {
         const response = await fetch(url, {
           signal: controller.signal,
@@ -137,9 +138,10 @@ async function fetchStats() {
         return parseRigData(ip, data);
       } catch (error) {
         clearTimeout(timeoutId);
+        const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
         return {
           ip,
-          name: `Rig-${ip.split('.').pop().split(':')[0] || ip}`,
+          name: fallbackName,
           status: 'offline',
           error: error.name === 'AbortError' ? 'Connection timed out' : error.message
         };
@@ -178,9 +180,27 @@ async function fetchStats() {
 
 // Client-side parser to extract data matching SRBMiner JSON schemas
 function parseRigData(ip, data) {
-  const defaultName = `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
+  const defaultName = ip.includes('192.168.1.201') ? 'shp01' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
   // Strictly use rig_name from JSON
   const name = data.rig_name || defaultName;
+
+  // Extract CPU info and temperature if available in JSON
+  let cpuModel = '';
+  let cpuTemp = null;
+
+  if (Array.isArray(data.cpu_devices) && data.cpu_devices.length > 0) {
+    const cpuDev = data.cpu_devices[0];
+    cpuModel = cpuDev.model || '';
+    if (typeof cpuDev.temperature === 'number') cpuTemp = cpuDev.temperature;
+    else if (typeof cpuDev.temp === 'number') cpuTemp = cpuDev.temp;
+  }
+
+  if (cpuTemp === null) {
+    if (typeof data.cpu_temperature === 'number') cpuTemp = data.cpu_temperature;
+    else if (typeof data.cpu_temp === 'number') cpuTemp = data.cpu_temp;
+    else if (typeof data.cpu?.temperature === 'number') cpuTemp = data.cpu.temperature;
+    else if (typeof data.cpu?.temp === 'number') cpuTemp = data.cpu.temp;
+  }
 
   const rig = {
     ip: ip,
@@ -190,6 +210,8 @@ function parseRigData(ip, data) {
     uptime: data.mining_time !== undefined ? data.mining_time : (data.uptime || 0),
     hashrate_total: 0,
     max_temp: 0,
+    cpu_model: cpuModel,
+    cpu_temp: cpuTemp,
     gpus: []
   };
 
@@ -306,6 +328,16 @@ function getTempSimpleClass(temp) {
   return 'normal';
 }
 
+// Clean CPU model name for clean display
+function formatCpuModel(model) {
+  if (!model) return 'CPU';
+  return model
+    .replace(/\(R\)|\(TM\)/gi, '')
+    .replace(/CPU\s*@\s*[\d.]+GHz/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Update the full interface DOM
 function updateUI(rigs) {
   if (!Array.isArray(rigs) || rigs.length === 0) {
@@ -356,6 +388,38 @@ function updateUI(rigs) {
     card.className = `rig-card glass-panel ${isOnline ? '' : 'offline-rig'}`;
     card.id = `rig-card-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
     
+    // CPU info & temperature row under PC/rig name
+    let cpuRowHtml = '';
+    if (isOnline && (rig.cpu_model || rig.cpu_temp !== null)) {
+      const cleanCpu = formatCpuModel(rig.cpu_model);
+      if (typeof rig.cpu_temp === 'number') {
+        const cpuTempClass = getTempClass(rig.cpu_temp);
+        cpuRowHtml = `
+          <div class="rig-cpu-info">
+            <span class="cpu-chip-badge" title="${rig.cpu_model || 'CPU'}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+              <span>${cleanCpu}</span>
+            </span>
+            <span class="cpu-temp-badge ${cpuTempClass}">
+              <span>${rig.cpu_temp}°C</span>
+            </span>
+          </div>
+        `;
+      } else {
+        cpuRowHtml = `
+          <div class="rig-cpu-info" title="SRBMiner-Multi API only reports GPU temperatures. CPU sensor temperature is not provided by the miner.">
+            <span class="cpu-chip-badge" title="${rig.cpu_model || 'CPU'}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+              <span>${cleanCpu}</span>
+            </span>
+            <span class="cpu-temp-badge na">
+              <span>CPU Temp: N/A</span>
+            </span>
+          </div>
+        `;
+      }
+    }
+
     // Core Card HTML structure
     let cardInnerHtml = `
       <div class="rig-header">
@@ -367,6 +431,7 @@ function updateUI(rigs) {
               ${rig.status}
             </span>
           </div>
+          ${cpuRowHtml}
           <span class="rig-ip">${rig.ip}</span>
           ${isOnline ? `<div class="rig-meta"><span>v${rig.version}</span> &bull; <span>Up: ${formatUptime(rig.uptime)}</span></div>` : ''}
         </div>

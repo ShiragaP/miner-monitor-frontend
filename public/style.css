@@ -359,6 +359,73 @@ header {
   font-family: monospace;
 }
 
+.rig-cpu-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  margin: 0.25rem 0 0.15rem 0;
+  font-size: 0.8rem;
+}
+
+.cpu-chip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cpu-chip-badge svg {
+  color: var(--color-neon-blue);
+  flex-shrink: 0;
+}
+
+.cpu-temp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+}
+
+.cpu-temp-badge.temp-good {
+  color: var(--color-online);
+  background: rgba(0, 255, 170, 0.08);
+  border-color: rgba(0, 255, 170, 0.2);
+}
+
+.cpu-temp-badge.temp-warn {
+  color: var(--color-warning);
+  background: rgba(255, 184, 0, 0.08);
+  border-color: rgba(255, 184, 0, 0.2);
+}
+
+.cpu-temp-badge.temp-hot {
+  color: var(--color-offline);
+  background: rgba(255, 74, 112, 0.08);
+  border-color: rgba(255, 74, 112, 0.2);
+}
+
+.cpu-temp-badge.na {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
 .rig-meta {
   display: flex;
   gap: 1rem;

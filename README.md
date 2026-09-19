@@ -38,7 +38,7 @@ You can customize the monitoring behavior using environment variables. These can
 
 | Environment Variable | Default Value | Description |
 | :--- | :--- | :--- |
-| `RIG_IPS` | `192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550` | Comma-separated list of target SRBMiner API IP addresses and ports. |
+| `RIG_IPS` | `192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550,192.168.1.201:21550` | Comma-separated list of target SRBMiner API IP addresses and ports. |
 | `PORT` | `21551` | The port the Node.js application runs on. |
 
 ---
