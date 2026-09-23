@@ -34,6 +34,7 @@ const elEconBadge = document.getElementById('badge-economics-source');
 
 // Initialize app
 window.addEventListener('DOMContentLoaded', () => {
+  handleRoute();
   fetchStats();
   fetchMarket();
   startTimers();
@@ -45,6 +46,8 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+window.addEventListener('hashchange', handleRoute);
 
 // Start auto-refresh and timer loops
 function startTimers() {
@@ -152,6 +155,7 @@ async function fetchStats() {
     lastRigResults = results;
     updateUI(results);
     updateEconomics(results);
+    handleRoute();
     
     headerStatusDot.className = 'status-dot';
     headerStatusDot.style.background = 'var(--color-online)';
@@ -425,7 +429,12 @@ function updateUI(rigs) {
       <div class="rig-header">
         <div class="rig-info">
           <div class="rig-name-row">
-            <h3 class="rig-name">${rig.name}</h3>
+            <a href="#/rig/${encodeURIComponent(rig.name)}" class="rig-title-link" title="Open ${rig.name} dedicated page">
+              <h3 class="rig-name">${rig.name}</h3>
+              <svg class="rig-title-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </a>
             <span class="rig-badge ${isOnline ? 'online' : 'offline'}">
               <span class="status-dot" style="background: ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; box-shadow: 0 0 6px ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; margin-right: 0.1rem;"></span>
               ${rig.status}
@@ -569,6 +578,7 @@ async function fetchMarket() {
     // Immediately update economics if rig data is already loaded
     if (lastRigResults && Array.isArray(lastRigResults)) {
       updateEconomics(lastRigResults);
+      handleRoute();
     }
   } catch (err) {
     console.warn('Could not fetch market data:', err.message);
@@ -705,3 +715,410 @@ function updateEconomics(rigs) {
     `;
   });
 }
+
+// =============================================
+// Router & Dedicated Rig Page View
+// =============================================
+
+function handleRoute() {
+  const hash = window.location.hash || '';
+  const match = hash.match(/^#\/rig\/(.+)$/);
+
+  const dashboardView = document.getElementById('view-dashboard');
+  const rigDetailView = document.getElementById('view-rig-detail');
+
+  if (!dashboardView || !rigDetailView) return;
+
+  if (match) {
+    const rawId = decodeURIComponent(match[1]);
+    dashboardView.classList.add('hidden');
+    rigDetailView.classList.remove('hidden');
+    renderRigDetailView(rawId);
+  } else {
+    dashboardView.classList.remove('hidden');
+    rigDetailView.classList.add('hidden');
+  }
+}
+
+function renderRigDetailView(rawId) {
+  const container = document.getElementById('view-rig-detail');
+  if (!container) return;
+
+  // 1. If rigs are still fetching on cold boot
+  if (!lastRigResults) {
+    container.innerHTML = `
+      <div class="detail-view-container">
+        <div class="detail-top-bar">
+          <div class="detail-nav-left">
+            <a href="#/" class="btn-back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Back to Dashboard</span>
+            </a>
+          </div>
+        </div>
+        <div class="glass-panel" style="padding: 4rem 2rem; text-align: center;">
+          <div class="status-dot loading" style="width: 14px; height: 14px; margin: 0 auto 1.25rem auto;"></div>
+          <h3 style="color: #fff; font-size: 1.4rem; font-weight: 600; margin-bottom: 0.5rem;">Loading Rig Details...</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Retrieving telemetry for ${rawId}</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // 2. Find matching rig by name or IP
+  const query = rawId.toLowerCase().trim();
+  const rig = lastRigResults.find(r => 
+    r.name.toLowerCase() === query || 
+    r.ip.toLowerCase() === query ||
+    r.name.toLowerCase().replace(/\s+/g, '-') === query
+  );
+
+  if (!rig) {
+    container.innerHTML = `
+      <div class="detail-view-container">
+        <div class="detail-top-bar">
+          <div class="detail-nav-left">
+            <a href="#/" class="btn-back">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Back to Dashboard</span>
+            </a>
+          </div>
+        </div>
+        <div class="glass-panel" style="padding: 4rem 2rem; text-align: center;">
+          <h3 style="color: var(--color-offline); font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">Rig Not Found</h3>
+          <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
+            No rig configuration matches "<strong>${rawId}</strong>".
+          </p>
+          <a href="#/" class="btn-back" style="display: inline-flex;">← Return to All Rigs</a>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const isOnline = rig.status === 'online';
+  const cleanCpu = formatCpuModel(rig.cpu_model);
+  const totalPower = isOnline && Array.isArray(rig.gpus) ? rig.gpus.reduce((sum, g) => sum + (g.power || 0), 0) : 0;
+  const avgTemp = isOnline && Array.isArray(rig.gpus) && rig.gpus.length > 0 
+    ? Math.round(rig.gpus.reduce((sum, g) => sum + (g.temp || 0), 0) / rig.gpus.length) 
+    : 0;
+
+  // External web API link
+  const targetIp = rig.ip.includes(':') ? rig.ip : `${rig.ip}:21550`;
+  const rigWebUrl = targetIp.startsWith('http') ? targetIp : `http://${targetIp}`;
+
+  // Economics computation for this rig
+  const fmt = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt0 = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  let econHtml = '';
+  if (isOnline) {
+    const costTHB = (totalPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+    let revDisplay = '— ฿';
+    let revSub = 'Awaiting market rates...';
+    let profitDisplay = '— ฿';
+    let profitClass = '';
+    let profitSub = 'Awaiting market data';
+    let monthlyProjection = '— ฿';
+
+    if (marketData) {
+      const { btc_revenue_per_1000ths = 0, btc_thb = 0 } = marketData;
+      const rigTHs = (rig.hashrate_total || 0) / 1e12;
+      const btcPerDay = btc_revenue_per_1000ths * (rigTHs / 1000);
+      const revenueTHB = btcPerDay * btc_thb;
+      const profitTHB = revenueTHB - costTHB;
+      const monthlyProfit = profitTHB * 30;
+
+      revDisplay = `฿${fmt(revenueTHB)}`;
+      revSub = `${btcPerDay.toFixed(8)} BTC/day`;
+      profitDisplay = `${profitTHB >= 0 ? '' : '−'}฿${fmt(Math.abs(profitTHB))}`;
+      profitClass = profitTHB < 0 ? 'negative' : '';
+      profitSub = profitTHB >= 0 ? 'Net profit after power' : 'Operating at a loss';
+      monthlyProjection = `${monthlyProfit >= 0 ? '' : '−'}฿${fmt0(Math.abs(monthlyProfit))} / mo`;
+    }
+
+    econHtml = `
+      <section class="detail-econ-container" aria-label="Rig Economics">
+        <div class="detail-section-title">
+          <h3>Rig Economics</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Est. daily yields for ${rig.name}</span>
+        </div>
+        <div class="detail-econ-grid">
+          <div class="detail-econ-card glass-panel revenue">
+            <div class="detail-econ-header">
+              <span class="detail-econ-label">Est. Daily Revenue</span>
+              <span style="color: var(--color-online); font-size: 1.25rem;">฿</span>
+            </div>
+            <div class="detail-econ-val revenue">${revDisplay}</div>
+            <div class="detail-econ-sub">${revSub}</div>
+          </div>
+
+          <div class="detail-econ-card glass-panel cost">
+            <div class="detail-econ-header">
+              <span class="detail-econ-label">Est. Daily Cost</span>
+              <span style="color: var(--color-warning); font-size: 1.25rem;">⚡</span>
+            </div>
+            <div class="detail-econ-val cost">฿${fmt(costTHB)}</div>
+            <div class="detail-econ-sub">${(totalPower / 1000).toFixed(2)} kW × 24h × ฿${ELECTRICITY_RATE_THB_PER_KWH}/kWh</div>
+          </div>
+
+          <div class="detail-econ-card glass-panel profit ${profitClass}">
+            <div class="detail-econ-header">
+              <span class="detail-econ-label">Est. Daily Profit</span>
+              <span style="font-size: 1.25rem;">📈</span>
+            </div>
+            <div class="detail-econ-val profit ${profitClass}">${profitDisplay}</div>
+            <div class="detail-econ-sub">${profitSub} (${monthlyProjection})</div>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  // CPU badge HTML
+  let cpuBadgeHtml = '';
+  if (isOnline && (rig.cpu_model || rig.cpu_temp !== null)) {
+    const cpuTempClass = rig.cpu_temp !== null ? getTempClass(rig.cpu_temp) : 'na';
+    const cpuTempText = rig.cpu_temp !== null ? `${rig.cpu_temp}°C` : 'N/A';
+    cpuBadgeHtml = `
+      <div class="detail-hero-pill" title="${rig.cpu_model || 'CPU'}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
+          <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+        </svg>
+        <span>${cleanCpu}</span>
+        <span class="cpu-temp-badge ${cpuTempClass}" style="margin-left: 0.25rem; padding: 0.15rem 0.4rem;">${cpuTempText}</span>
+      </div>
+    `;
+  }
+
+  // Build Online / Offline content
+  let bodyContent = '';
+  if (isOnline) {
+    const tempClass = getTempSimpleClass(rig.max_temp);
+    const efficiency = totalPower > 0 ? (rig.hashrate_total / totalPower).toFixed(1) : '—';
+
+    // Build GPU cards HTML
+    let gpusHtml = '';
+    if (Array.isArray(rig.gpus) && rig.gpus.length > 0) {
+      rig.gpus.forEach((gpu, index) => {
+        let tempFillClass = 'good';
+        if (gpu.temp >= 78) tempFillClass = 'hot';
+        else if (gpu.temp >= 68) tempFillClass = 'warn';
+
+        const tempPercent = Math.min(100, Math.max(0, Math.round((gpu.temp / 90) * 100)));
+        const fanPercent = Math.min(100, Math.max(0, gpu.fan));
+        const gpuShare = rig.hashrate_total > 0 ? ((gpu.hashrate / rig.hashrate_total) * 100).toFixed(1) : '0.0';
+        const gpuEff = gpu.power > 0 ? (gpu.hashrate / gpu.power).toFixed(1) : '—';
+
+        gpusHtml += `
+          <div class="detail-gpu-card glass-panel">
+            <div class="detail-gpu-top">
+              <div class="detail-gpu-identity">
+                <span class="detail-gpu-badge">GPU #${gpu.id !== undefined ? gpu.id : index}</span>
+                <h4 class="detail-gpu-model" title="${gpu.model}">${gpu.model}</h4>
+              </div>
+              <div class="detail-gpu-hashrate-box">
+                <div class="detail-gpu-hashrate-val">${formatHashrate(gpu.hashrate)}</div>
+                <div class="detail-gpu-hashrate-sub">${gpuShare}% of rig</div>
+              </div>
+            </div>
+
+            <div class="detail-gpu-meters">
+              <div class="meter-row">
+                <div class="meter-label-row">
+                  <span class="meter-label">Temperature</span>
+                  <span class="meter-val ${getTempClass(gpu.temp)}">${gpu.temp}°C</span>
+                </div>
+                <div class="meter-track">
+                  <div class="meter-fill ${tempFillClass}" style="width: ${tempPercent}%;"></div>
+                </div>
+              </div>
+
+              <div class="meter-row">
+                <div class="meter-label-row">
+                  <span class="meter-label">Fan Speed</span>
+                  <span class="meter-val" style="color: var(--color-neon-blue);">${gpu.fan}%</span>
+                </div>
+                <div class="meter-track">
+                  <div class="meter-fill fan" style="width: ${fanPercent}%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-gpu-footer">
+              <div class="gpu-stat-pill">
+                <span>Power:</span>
+                <strong style="color: var(--color-warning);">${gpu.power}W</strong>
+              </div>
+              <div class="gpu-stat-pill">
+                <span>Efficiency:</span>
+                <strong style="color: var(--color-online);">${gpuEff} H/W</strong>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    } else {
+      gpusHtml = `<div class="glass-panel" style="grid-column: 1 / -1; padding: 2.5rem; text-align: center; color: var(--text-muted);">No GPU devices reported by SRBMiner</div>`;
+    }
+
+    bodyContent = `
+      <!-- KPI Cards -->
+      <section class="detail-kpi-grid" aria-label="Rig KPIs">
+        <div class="detail-kpi-card glass-panel">
+          <div class="detail-kpi-icon hashrate">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <div class="detail-kpi-info">
+            <span class="detail-kpi-label">Rig Hashrate</span>
+            <span class="detail-kpi-val" style="color: var(--color-neon-blue);">${formatHashrate(rig.hashrate_total)}</span>
+            <span class="detail-kpi-sub">${marketData?.algorithm || 'Pearl'} Algorithm</span>
+          </div>
+        </div>
+
+        <div class="detail-kpi-card glass-panel">
+          <div class="detail-kpi-icon power">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <div class="detail-kpi-info">
+            <span class="detail-kpi-label">Total Power</span>
+            <span class="detail-kpi-val" style="color: var(--color-warning);">${totalPower}W</span>
+            <span class="detail-kpi-sub">${efficiency} H/W Efficiency</span>
+          </div>
+        </div>
+
+        <div class="detail-kpi-card glass-panel">
+          <div class="detail-kpi-icon temp">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+            </svg>
+          </div>
+          <div class="detail-kpi-info">
+            <span class="detail-kpi-label">Thermal Status</span>
+            <span class="detail-kpi-val ${getTempClass(rig.max_temp)}">${rig.max_temp}°C <span style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted);">Max</span></span>
+            <span class="detail-kpi-sub">Average: ${avgTemp}°C</span>
+          </div>
+        </div>
+
+        <div class="detail-kpi-card glass-panel">
+          <div class="detail-kpi-icon gpus">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+            </svg>
+          </div>
+          <div class="detail-kpi-info">
+            <span class="detail-kpi-label">GPU Devices</span>
+            <span class="detail-kpi-val" style="color: var(--color-neon-purple);">${rig.gpus ? rig.gpus.length : 0}</span>
+            <span class="detail-kpi-sub">All reporting active</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rig Economics -->
+      ${econHtml}
+
+      <!-- GPUs Section -->
+      <section class="detail-gpus-container" aria-label="GPU Hardware">
+        <div class="detail-section-title">
+          <h3>GPU Hardware Telemetry</h3>
+          <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">${rig.gpus ? rig.gpus.length : 0} GPUs</span>
+        </div>
+        <div class="detail-gpus-grid">
+          ${gpusHtml}
+        </div>
+      </section>
+    `;
+  } else {
+    // Offline Presentation
+    bodyContent = `
+      <div class="detail-offline-panel glass-panel">
+        <div class="detail-offline-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+        </div>
+        <h3 class="detail-offline-title">Rig Unreachable</h3>
+        <p class="detail-offline-desc">
+          The monitor could not connect to <strong>${rig.ip}</strong>.<br>
+          <span style="color: var(--color-offline);">${rig.error || 'Connection timed out or host unreachable.'}</span>
+        </p>
+        <button class="btn-retry" onclick="fetchStats(); fetchMarket();">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>Retry Connection</span>
+        </button>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="detail-view-container">
+      <!-- Navigation Bar -->
+      <div class="detail-top-bar">
+        <div class="detail-nav-left">
+          <a href="#/" class="btn-back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            <span>Back to Dashboard</span>
+          </a>
+          <div class="detail-breadcrumb">
+            <a href="#/">Dashboard</a>
+            <span>/</span>
+            <span class="detail-breadcrumb-current">${rig.name}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rig Hero Panel -->
+      <div class="detail-hero-panel glass-panel ${isOnline ? '' : 'offline-rig'}">
+        <div class="detail-hero-left">
+          <div class="detail-hero-title-row">
+            <h2 class="detail-hero-name">${rig.name}</h2>
+            <span class="rig-badge ${isOnline ? 'online' : 'offline'}">
+              <span class="status-dot" style="background: ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; box-shadow: 0 0 6px ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; margin-right: 0.1rem;"></span>
+              ${rig.status}
+            </span>
+          </div>
+          <div class="detail-hero-meta">
+            <span class="detail-hero-pill ip-pill">${rig.ip}</span>
+            ${isOnline ? `<span class="detail-hero-pill">v${rig.version}</span>` : ''}
+            ${isOnline ? `<span class="detail-hero-pill">Up: ${formatUptime(rig.uptime)}</span>` : ''}
+            ${cpuBadgeHtml}
+          </div>
+        </div>
+        <div class="detail-hero-right">
+          <a href="${rigWebUrl}" target="_blank" rel="noopener noreferrer" class="btn-web-ui" title="Open SRBMiner web API interface directly in new tab">
+            <span>Direct Web UI</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <!-- Main Body Content -->
+      ${bodyContent}
+    </div>
+  `;
+}
+
