@@ -10,6 +10,6 @@ services:
     environment:
       # Comma-separated list of SRBMiner API IP addresses and ports.
       # You can modify this list directly without rebuilding the image.
-      - RIG_IPS=192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550,192.168.1.201:21550
+      - RIG_IPS=192.168.1.101:21550,192.168.1.102:21550,192.168.1.113:21550,192.168.1.114:21550,192.168.1.122:21550,192.168.1.123:21550,192.168.1.124:21550,192.168.1.201:21550
       # Optional: Change the port the server listens on inside and outside
       - PORT=21551
