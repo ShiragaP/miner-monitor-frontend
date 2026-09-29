@@ -141,8 +141,8 @@ async function fetchStats() {
         return parseRigData(ip, data);
       } catch (error) {
         clearTimeout(timeoutId);
-        const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
-        const isQuantusRig = ip.includes('192.168.1.113');
+        const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`);
+        const isQuantusRig = ip.includes('192.168.1.113') || ip.includes('192.168.1.103');
         return {
           ip,
           name: fallbackName,
@@ -188,7 +188,7 @@ async function fetchStats() {
 
 // Client-side parser to extract data matching SRBMiner JSON schemas
 function parseRigData(ip, data) {
-  const defaultName = ip.includes('192.168.1.201') ? 'shp01' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
+  const defaultName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`);
   // Strictly use rig_name from JSON
   const name = data.rig_name || defaultName;
 
@@ -211,9 +211,9 @@ function parseRigData(ip, data) {
   }
 
   // Extract algorithm and coin info from SRBMiner telemetry
-  let coinKey = ip.includes('192.168.1.113') ? 'quantus' : 'pearl';
-  let coinName = ip.includes('192.168.1.113') ? 'Quantus' : 'Pearl';
-  let algoName = ip.includes('192.168.1.113') ? 'QPoW' : 'Pearl';
+  let coinKey = (ip.includes('192.168.1.113') || ip.includes('192.168.1.103')) ? 'quantus' : 'pearl';
+  let coinName = (ip.includes('192.168.1.113') || ip.includes('192.168.1.103')) ? 'Quantus' : 'Pearl';
+  let algoName = (ip.includes('192.168.1.113') || ip.includes('192.168.1.103')) ? 'QPoW' : 'Pearl';
   let poolAddress = '';
   let shares = null;
 
