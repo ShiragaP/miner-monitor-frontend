@@ -31,23 +31,65 @@ app.get('/api/config', (req, res) => {
 });
 
 // ============================================================================
-// Robust Market Data Proxy with Caching, Deduplication, and Fallbacks
+// Robust Multi-Coin Market Data Proxy with Caching & Fallbacks
 // ============================================================================
 
 const CACHE_FILE = path.join(__dirname, '.market_cache.json');
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes fresh cache
 const RATE_LIMIT_COOLDOWN_MS = 60 * 1000; // 60s cooldown if 429 received
-const WTM_COIN_ID = process.env.WTM_COIN_ID || '469'; // Default: Pearl (469)
+
+// Multi-coin economics configuration for WhatToMine
+const SUPPORTED_COINS = {
+  pearl: {
+    id: '469',
+    name: 'Pearl',
+    tag: 'PRL',
+    algorithm: 'Pearl',
+    hrParam: 'hr=1000&fee=3',
+    baselineHs: 1e15, // WhatToMine hr=1000 for Pearl is 1000 TH/s = 1e15 H/s
+    fallbackBtcRevenue: 0.00032183
+  },
+  quantus: {
+    id: '473',
+    name: 'Quantus',
+    tag: 'QUANTUS',
+    algorithm: 'QPoW',
+    hrParam: 'hr=1000&fee=3',
+    baselineHs: 1e9, // WhatToMine hr=1000 for Quantus is 1000 MH/s = 1e9 H/s
+    fallbackBtcRevenue: 0.00012433
+  }
+};
 
 // Baseline fallback if WhatToMine / CoinGecko are unreachable on initial cold boot
 const DEFAULT_FALLBACK_MARKET = {
-  btc_revenue_per_1000ths: 0.00037648,
-  coin_name: 'Pearl',
-  algorithm: 'Pearl',
-  btc_thb: 2700000,
+  btc_thb: 2800000,
   btc_source: 'Fallback',
   is_stale: true,
-  cached_at: Date.now()
+  cached_at: Date.now(),
+  coins: {
+    pearl: {
+      id: 469,
+      name: 'Pearl',
+      tag: 'PRL',
+      algorithm: 'Pearl',
+      btc_revenue: 0.00032183,
+      baseline_h_s: 1e15,
+      btc_per_h_s: 0.00032183 / 1e15
+    },
+    quantus: {
+      id: 473,
+      name: 'Quantus',
+      tag: 'QUANTUS',
+      algorithm: 'QPoW',
+      btc_revenue: 0.00012433,
+      baseline_h_s: 1e9,
+      btc_per_h_s: 0.00012433 / 1e9
+    }
+  },
+  // Backwards compatibility properties
+  btc_revenue_per_1000ths: 0.00032183,
+  coin_name: 'Pearl',
+  algorithm: 'Pearl'
 };
 
 // Load persistent cache from disk on startup
@@ -55,8 +97,11 @@ let marketCache = null;
 try {
   if (fs.existsSync(CACHE_FILE)) {
     const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
-    marketCache = JSON.parse(raw);
-    console.log(`[Market] Loaded persistent cache from disk (saved at ${new Date(marketCache.cached_at).toLocaleTimeString()})`);
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.coins) {
+      marketCache = parsed;
+      console.log(`[Market] Loaded persistent multi-coin cache from disk (saved at ${new Date(marketCache.cached_at).toLocaleTimeString()})`);
+    }
   }
 } catch (err) {
   console.warn('[Market] Could not load cache file:', err.message);
@@ -120,16 +165,9 @@ async function fetchBtcThbPrice() {
   };
 }
 
-// Fetch WhatToMine coin economics
-async function fetchWhatToMineData() {
-  // Cooldown check if previously rate-limited
-  const timeSince429 = Date.now() - lastWtm429Time;
-  if (timeSince429 < RATE_LIMIT_COOLDOWN_MS) {
-    const remainingSec = Math.ceil((RATE_LIMIT_COOLDOWN_MS - timeSince429) / 1000);
-    throw new Error(`WhatToMine cooling down after 429 (${remainingSec}s remaining)`);
-  }
-
-  const url = `https://whattomine.com/coins/${WTM_COIN_ID}.json?hr=1000&fee=3`;
+// Fetch WhatToMine single coin economics
+async function fetchWhatToMineCoin(coinKey, config) {
+  const url = `https://whattomine.com/coins/${config.id}.json?${config.hrParam}`;
   const res = await fetch(url, {
     headers: {
       'Accept': 'application/json',
@@ -140,17 +178,27 @@ async function fetchWhatToMineData() {
 
   if (res.status === 429) {
     lastWtm429Time = Date.now();
-    throw new Error('WhatToMine error: 429');
+    throw new Error(`WhatToMine error 429 for ${config.name}`);
   }
 
   if (!res.ok) {
-    throw new Error(`WhatToMine error: ${res.status}`);
+    throw new Error(`WhatToMine error ${res.status} for ${config.name}`);
   }
 
-  return await res.json();
+  const data = await res.json();
+  const btcRevenue = Number(data.btc_revenue) || config.fallbackBtcRevenue;
+  return {
+    id: Number(config.id),
+    name: data.name || config.name,
+    tag: data.tag || config.tag,
+    algorithm: data.algorithm || config.algorithm,
+    btc_revenue: btcRevenue,
+    baseline_h_s: config.baselineHs,
+    btc_per_h_s: btcRevenue / config.baselineHs
+  };
 }
 
-// Unified market data getter with caching and deduplication
+// Unified multi-coin market data getter with caching and deduplication
 async function getMarketData() {
   const now = Date.now();
 
@@ -167,17 +215,44 @@ async function getMarketData() {
   // 3. Execute new fetch
   inFlightMarketFetch = (async () => {
     try {
-      const [wtmData, btcInfo] = await Promise.all([
-        fetchWhatToMineData(),
-        fetchBtcThbPrice()
-      ]);
+      // Cooldown check if previously rate-limited
+      const timeSince429 = Date.now() - lastWtm429Time;
+      if (timeSince429 < RATE_LIMIT_COOLDOWN_MS) {
+        const remainingSec = Math.ceil((RATE_LIMIT_COOLDOWN_MS - timeSince429) / 1000);
+        throw new Error(`WhatToMine cooling down after 429 (${remainingSec}s remaining)`);
+      }
+
+      // Fetch BTC price
+      const btcInfoPromise = fetchBtcThbPrice();
+
+      // Fetch all coins with a small delay between requests to avoid rate limits
+      const coinEntries = Object.entries(SUPPORTED_COINS);
+      const coinsResult = {};
+
+      for (let i = 0; i < coinEntries.length; i++) {
+        const [coinKey, config] = coinEntries[i];
+        if (i > 0) {
+          // 300ms pause between WTM API requests
+          await new Promise(r => setTimeout(r, 300));
+        }
+        try {
+          coinsResult[coinKey] = await fetchWhatToMineCoin(coinKey, config);
+        } catch (coinErr) {
+          console.warn(`[Market] Could not fetch live ${config.name} (${coinErr.message}), using fallback.`);
+          coinsResult[coinKey] = marketCache?.coins?.[coinKey] || DEFAULT_FALLBACK_MARKET.coins[coinKey];
+        }
+      }
+
+      const btcInfo = await btcInfoPromise;
 
       const freshData = {
-        btc_revenue_per_1000ths: Number(wtmData.btc_revenue) || 0,
-        coin_name: wtmData.name || 'Pearl',
-        algorithm: wtmData.algorithm || 'Pearl',
         btc_thb: btcInfo.price,
         btc_source: btcInfo.source,
+        coins: coinsResult,
+        // Root properties for backwards compatibility
+        btc_revenue_per_1000ths: coinsResult.pearl?.btc_revenue || DEFAULT_FALLBACK_MARKET.btc_revenue_per_1000ths,
+        coin_name: coinsResult.pearl?.name || 'Pearl',
+        algorithm: coinsResult.pearl?.algorithm || 'Pearl',
         is_stale: false,
         cached_at: Date.now()
       };
@@ -230,6 +305,6 @@ app.listen(PORT, () => {
   console.log(`Port: ${PORT}`);
   console.log(`Mode: CLIENT-SIDE FETCH`);
   console.log(`Configured Rigs: ${RIG_IPS.join(', ')}`);
-  console.log(`Coin ID: ${WTM_COIN_ID}`);
+  console.log(`Supported Coins: ${Object.keys(SUPPORTED_COINS).map(k => `${SUPPORTED_COINS[k].name} (#${SUPPORTED_COINS[k].id})`).join(', ')}`);
   console.log(`==================================================`);
 });

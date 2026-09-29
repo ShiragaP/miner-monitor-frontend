@@ -142,10 +142,14 @@ async function fetchStats() {
       } catch (error) {
         clearTimeout(timeoutId);
         const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`;
+        const isQuantusRig = ip.includes('192.168.1.113');
         return {
           ip,
           name: fallbackName,
           status: 'offline',
+          coin_key: isQuantusRig ? 'quantus' : 'pearl',
+          coin_name: isQuantusRig ? 'Quantus' : 'Pearl',
+          algorithm: isQuantusRig ? 'QPoW' : 'Pearl',
           error: error.name === 'AbortError' ? 'Connection timed out' : error.message
         };
       }
@@ -206,12 +210,45 @@ function parseRigData(ip, data) {
     else if (typeof data.cpu?.temp === 'number') cpuTemp = data.cpu.temp;
   }
 
+  // Extract algorithm and coin info from SRBMiner telemetry
+  let coinKey = ip.includes('192.168.1.113') ? 'quantus' : 'pearl';
+  let coinName = ip.includes('192.168.1.113') ? 'Quantus' : 'Pearl';
+  let algoName = ip.includes('192.168.1.113') ? 'QPoW' : 'Pearl';
+  let poolAddress = '';
+  let shares = null;
+
+  if (Array.isArray(data.algorithms) && data.algorithms.length > 0) {
+    const activeAlgo = data.algorithms[0];
+    const rawAlgo = (activeAlgo.name || '').toLowerCase();
+    poolAddress = activeAlgo.pool?.pool || '';
+    shares = activeAlgo.shares || null;
+
+    if (rawAlgo.includes('quant') || rawAlgo.includes('qpow')) {
+      coinKey = 'quantus';
+      coinName = 'Quantus';
+      algoName = 'QPoW';
+    } else if (rawAlgo.includes('pearl')) {
+      coinKey = 'pearl';
+      coinName = 'Pearl';
+      algoName = 'Pearl';
+    } else if (rawAlgo) {
+      coinKey = rawAlgo;
+      coinName = activeAlgo.name.toUpperCase();
+      algoName = activeAlgo.name;
+    }
+  }
+
   const rig = {
     ip: ip,
     name: name,
     status: 'online',
     version: data.miner_version || 'Unknown',
     uptime: data.mining_time !== undefined ? data.mining_time : (data.uptime || 0),
+    coin_key: coinKey,
+    coin_name: coinName,
+    algorithm: algoName,
+    pool: poolAddress,
+    shares: shares,
     hashrate_total: 0,
     max_temp: 0,
     cpu_model: cpuModel,
@@ -435,14 +472,20 @@ function updateUI(rigs) {
                 <polyline points="9 18 15 12 9 6"></polyline>
               </svg>
             </a>
-            <span class="rig-badge ${isOnline ? 'online' : 'offline'}">
-              <span class="status-dot" style="background: ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; box-shadow: 0 0 6px ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; margin-right: 0.1rem;"></span>
-              ${rig.status}
-            </span>
+            <div class="rig-badges-group">
+              <span class="coin-badge ${rig.coin_key || 'pearl'}" title="Mining ${rig.coin_name || 'Pearl'} (${rig.algorithm || 'Pearl'})">
+                <span class="coin-badge-dot"></span>
+                ${rig.coin_name || 'Pearl'}
+              </span>
+              <span class="rig-badge ${isOnline ? 'online' : 'offline'}">
+                <span class="status-dot" style="background: ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; box-shadow: 0 0 6px ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; margin-right: 0.1rem;"></span>
+                ${rig.status}
+              </span>
+            </div>
           </div>
           ${cpuRowHtml}
           <span class="rig-ip">${rig.ip}</span>
-          ${isOnline ? `<div class="rig-meta"><span>v${rig.version}</span> &bull; <span>Up: ${formatUptime(rig.uptime)}</span></div>` : ''}
+          ${isOnline ? `<div class="rig-meta"><span>v${rig.version}</span> &bull; <span>Up: ${formatUptime(rig.uptime)}</span>${rig.pool ? ` &bull; <span title="Pool: ${rig.pool}">Pool: ${rig.pool.split(':')[0]}</span>` : ''}</div>` : ''}
         </div>
       </div>
     `;
@@ -461,6 +504,7 @@ function updateUI(rigs) {
           <div class="quick-stat-box">
             <span class="quick-stat-label">Rig Hashrate</span>
             <span class="quick-stat-value hashrate">${formatHashrate(rig.hashrate_total)}</span>
+            <span class="quick-stat-sub">${rig.algorithm || 'Pearl'}</span>
           </div>
           <div class="quick-stat-box">
             <span class="quick-stat-label">Max GPU Temp</span>
@@ -643,77 +687,84 @@ function updateEconomics(rigs) {
     return;
   }
 
-  const {
-    btc_revenue_per_1000ths = 0,
-    btc_thb = 0,
-    coin_name = 'Pearl',
-    algorithm = 'Pearl',
-    btc_source = 'CoinGecko',
-    is_stale = false
-  } = marketData;
+  const btc_thb = Number(marketData.btc_thb) || 2800000;
+  const btc_source = marketData.btc_source || 'Bitkub';
+  const is_stale = Boolean(marketData.is_stale);
 
-  // Revenue (THB / day)
-  // WhatToMine hr=1000 is in TH/s → btc_revenue covers 1,000 TH/s (= 1×10¹⁵ H/s)
-  // Convert our H/s total → TH/s, then scale against the 1000-TH/s baseline
-  const totalHashrateTHs = totalHashrateHs / 1e12;
-  const btcPerDay = btc_revenue_per_1000ths * (totalHashrateTHs / 1000);
-  const revenueTHB = btcPerDay * btc_thb;
+  let totalRevenueTHB = 0;
+  let totalBtcPerDay = 0;
+  const activeCoinsSet = new Set();
 
-  // Profit
-  const profitTHB = revenueTHB - costTHB;
+  // Calculate per-rig economics using each rig's detected coin
+  rigs.forEach(rig => {
+    if (rig.status !== 'online') return;
+
+    // Find coin economics from multi-coin marketData
+    const coinKey = rig.coin_key || 'pearl';
+    const coinData = marketData.coins?.[coinKey] || (coinKey === 'quantus' ? marketData.coins?.quantus : marketData.coins?.pearl);
+
+    let btcPerHs = 0;
+    if (coinData && typeof coinData.btc_per_h_s === 'number' && coinData.btc_per_h_s > 0) {
+      btcPerHs = coinData.btc_per_h_s;
+    } else if (coinKey === 'quantus') {
+      // Fallback: Quantus 473 WTM ~0.00012 BTC for 1000 MH/s (1e9 H/s)
+      btcPerHs = 0.00012035 / 1e9;
+    } else {
+      // Fallback: Pearl 469 WTM ~0.00033 BTC for 1000 TH/s (1e15 H/s)
+      btcPerHs = (marketData.btc_revenue_per_1000ths || 0.00032183) / 1e15;
+    }
+
+    const rigBtcDay = (rig.hashrate_total || 0) * btcPerHs;
+    const rigRevenue = rigBtcDay * btc_thb;
+    const rigPower = (rig.gpus || []).reduce((sum, g) => sum + (g.power || 0), 0);
+    const rigCost = (rigPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
+    const rigProfit = rigRevenue - rigCost;
+
+    totalBtcPerDay += rigBtcDay;
+    totalRevenueTHB += rigRevenue;
+    activeCoinsSet.add(rig.coin_name || 'Pearl');
+
+    const rigId = `rig-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
+    const wrapper = document.getElementById(`econ-wrapper-${rigId}`);
+    if (wrapper) {
+      const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
+      wrapper.innerHTML = `
+        <div class="rig-economics-row">
+          <div class="rig-econ-item">
+            <span class="rig-econ-label">Revenue/day</span>
+            <span class="rig-econ-val" style="color: var(--color-online);">฿${fmt0(rigRevenue)}</span>
+          </div>
+          <div class="rig-econ-item">
+            <span class="rig-econ-label">Cost/day</span>
+            <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmt0(rigCost)}</span>
+          </div>
+          <div class="rig-econ-item">
+            <span class="rig-econ-label">Profit/day</span>
+            <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmt0(Math.abs(rigProfit))}</span>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  // Global profit across all rigs
+  const profitTHB = totalRevenueTHB - costTHB;
 
   // Update Revenue card
-  elRevenue.textContent = `฿${fmt(revenueTHB)}`;
-  elRevenueBtc.textContent = `${btcPerDay.toFixed(8)} BTC/day  ·  1 BTC = ฿${Number(btc_thb).toLocaleString('th-TH')}`;
+  elRevenue.textContent = `฿${fmt(totalRevenueTHB)}`;
+  elRevenueBtc.textContent = `${totalBtcPerDay.toFixed(8)} BTC/day  ·  1 BTC = ฿${Number(btc_thb).toLocaleString('th-TH')}`;
 
   // Update Profit card
   elProfit.textContent = `${profitTHB >= 0 ? '' : '−'}฿${fmt(Math.abs(profitTHB))}`;
   elProfit.classList.toggle('negative', profitTHB < 0);
   elProfitNote.textContent = profitTHB >= 0 ? 'After electricity cost' : 'Operating at a loss';
 
-  // Update badge
-  const sourceText = `WhatToMine + ${btc_source || 'CoinGecko'}`;
+  // Update badge with active coins
+  const activeCoinsList = Array.from(activeCoinsSet);
+  const coinsText = activeCoinsList.length > 0 ? activeCoinsList.join(' & ') : 'Multi-coin';
+  const sourceText = `WhatToMine + ${btc_source || 'Bitkub'}`;
   const staleTag = is_stale ? ' · (Cached)' : '';
-  if (coin_name && algorithm) {
-    elEconBadge.textContent = `${coin_name} · ${algorithm} · ${sourceText}${staleTag}`;
-  } else {
-    elEconBadge.textContent = `${sourceText}${staleTag}`;
-  }
-
-  // Update per-rig economics placeholders in parallel
-  rigs.forEach(rig => {
-    if (rig.status !== 'online') return;
-    
-    const rigId = `rig-${rig.name.replace(/\s+/g, '-').toLowerCase()}`;
-    const wrapper = document.getElementById(`econ-wrapper-${rigId}`);
-    if (!wrapper) return;
-
-    const rigPower = (rig.gpus || []).reduce((sum, g) => sum + (g.power || 0), 0);
-    const rigTHs = (rig.hashrate_total || 0) / 1e12;
-    const rigBtcDay = btc_revenue_per_1000ths * (rigTHs / 1000);
-    const rigRevenue = rigBtcDay * btc_thb;
-    const rigCost = (rigPower / 1000) * 24 * ELECTRICITY_RATE_THB_PER_KWH;
-    const rigProfit = rigRevenue - rigCost;
-
-    const profitColor = rigProfit >= 0 ? 'var(--color-online)' : 'var(--color-offline)';
-
-    wrapper.innerHTML = `
-      <div class="rig-economics-row">
-        <div class="rig-econ-item">
-          <span class="rig-econ-label">Revenue/day</span>
-          <span class="rig-econ-val" style="color: var(--color-online);">฿${fmt0(rigRevenue)}</span>
-        </div>
-        <div class="rig-econ-item">
-          <span class="rig-econ-label">Cost/day</span>
-          <span class="rig-econ-val" style="color: var(--color-warning);">฿${fmt0(rigCost)}</span>
-        </div>
-        <div class="rig-econ-item">
-          <span class="rig-econ-label">Profit/day</span>
-          <span class="rig-econ-val" style="color: ${profitColor};">${rigProfit >= 0 ? '' : '−'}฿${fmt0(Math.abs(rigProfit))}</span>
-        </div>
-      </div>
-    `;
-  });
+  elEconBadge.textContent = `${coinsText} · ${sourceText}${staleTag}`;
 }
 
 // =============================================
@@ -829,15 +880,26 @@ function renderRigDetailView(rawId) {
     let monthlyProjection = '— ฿';
 
     if (marketData) {
-      const { btc_revenue_per_1000ths = 0, btc_thb = 0 } = marketData;
-      const rigTHs = (rig.hashrate_total || 0) / 1e12;
-      const btcPerDay = btc_revenue_per_1000ths * (rigTHs / 1000);
+      const btc_thb = Number(marketData.btc_thb) || 2800000;
+      const coinKey = rig.coin_key || 'pearl';
+      const coinData = marketData.coins?.[coinKey] || (coinKey === 'quantus' ? marketData.coins?.quantus : marketData.coins?.pearl);
+
+      let btcPerHs = 0;
+      if (coinData && typeof coinData.btc_per_h_s === 'number' && coinData.btc_per_h_s > 0) {
+        btcPerHs = coinData.btc_per_h_s;
+      } else if (coinKey === 'quantus') {
+        btcPerHs = 0.00012035 / 1e9;
+      } else {
+        btcPerHs = (marketData.btc_revenue_per_1000ths || 0.00032183) / 1e15;
+      }
+
+      const btcPerDay = (rig.hashrate_total || 0) * btcPerHs;
       const revenueTHB = btcPerDay * btc_thb;
       const profitTHB = revenueTHB - costTHB;
       const monthlyProfit = profitTHB * 30;
 
       revDisplay = `฿${fmt(revenueTHB)}`;
-      revSub = `${btcPerDay.toFixed(8)} BTC/day`;
+      revSub = `${btcPerDay.toFixed(8)} BTC/day (${rig.coin_name || 'Pearl'})`;
       profitDisplay = `${profitTHB >= 0 ? '' : '−'}฿${fmt(Math.abs(profitTHB))}`;
       profitClass = profitTHB < 0 ? 'negative' : '';
       profitSub = profitTHB >= 0 ? 'Net profit after power' : 'Operating at a loss';
@@ -848,7 +910,7 @@ function renderRigDetailView(rawId) {
       <section class="detail-econ-container" aria-label="Rig Economics">
         <div class="detail-section-title">
           <h3>Rig Economics</h3>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">Est. daily yields for ${rig.name}</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Est. daily yields for ${rig.name} (${rig.coin_name || 'Pearl'} · ${rig.algorithm || 'Pearl'})</span>
         </div>
         <div class="detail-econ-grid">
           <div class="detail-econ-card glass-panel revenue">
@@ -982,7 +1044,7 @@ function renderRigDetailView(rawId) {
           <div class="detail-kpi-info">
             <span class="detail-kpi-label">Rig Hashrate</span>
             <span class="detail-kpi-val" style="color: var(--color-neon-blue);">${formatHashrate(rig.hashrate_total)}</span>
-            <span class="detail-kpi-sub">${marketData?.algorithm || 'Pearl'} Algorithm</span>
+            <span class="detail-kpi-sub">${rig.coin_name || 'Pearl'} (${rig.algorithm || 'Pearl'}) Algorithm</span>
           </div>
         </div>
 
@@ -1098,9 +1160,12 @@ function renderRigDetailView(rawId) {
             </span>
           </div>
           <div class="detail-hero-meta">
+            <span class="detail-hero-pill coin-pill ${rig.coin_key || 'pearl'}">${rig.coin_name || 'Pearl'} (${rig.algorithm || 'Pearl'})</span>
             <span class="detail-hero-pill ip-pill">${rig.ip}</span>
             ${isOnline ? `<span class="detail-hero-pill">v${rig.version}</span>` : ''}
             ${isOnline ? `<span class="detail-hero-pill">Up: ${formatUptime(rig.uptime)}</span>` : ''}
+            ${rig.pool ? `<span class="detail-hero-pill" title="Pool: ${rig.pool}">🌐 ${rig.pool}</span>` : ''}
+            ${rig.shares ? `<span class="detail-hero-pill" title="Accepted / Rejected Shares">✅ ${rig.shares.accepted || 0} / ❌ ${rig.shares.rejected || 0}</span>` : ''}
             ${cpuBadgeHtml}
           </div>
         </div>

@@ -386,6 +386,60 @@ header {
   border: 1px solid rgba(255, 74, 112, 0.15);
 }
 
+.rig-badges-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* Coin Badges (Pearl, Quantus, etc.) */
+.coin-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.65rem;
+  border-radius: 50px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: var(--transition-smooth);
+}
+
+.coin-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Quantus (QPoW) - Electric Neon Cyan/Blue Theme */
+.coin-badge.quantus {
+  background: rgba(0, 210, 255, 0.12);
+  color: #00d2ff;
+  border: 1px solid rgba(0, 210, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 210, 255, 0.15);
+}
+
+.coin-badge.quantus .coin-badge-dot {
+  background: #00d2ff;
+  box-shadow: 0 0 6px #00d2ff;
+}
+
+/* Pearl - Soft Pearlescent Lavender/Purple Theme */
+.coin-badge.pearl {
+  background: rgba(157, 78, 221, 0.14);
+  color: #d1c8ff;
+  border: 1px solid rgba(157, 78, 221, 0.35);
+  box-shadow: 0 0 10px rgba(157, 78, 221, 0.15);
+}
+
+.coin-badge.pearl .coin-badge-dot {
+  background: #c7beff;
+  box-shadow: 0 0 6px #c7beff;
+}
+
 .rig-ip {
   font-size: 0.8rem;
   color: var(--text-secondary);
@@ -497,6 +551,13 @@ header {
   font-family: var(--font-display);
   font-size: 1.35rem;
   font-weight: 700;
+}
+
+.quick-stat-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-top: 0.2rem;
 }
 
 .quick-stat-value.hashrate {
@@ -972,6 +1033,26 @@ header {
 .detail-hero-pill.ip-pill {
   font-family: monospace;
   color: var(--color-neon-blue);
+}
+
+.detail-hero-pill.coin-pill {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-hero-pill.coin-pill.quantus {
+  background: rgba(0, 210, 255, 0.12);
+  color: #00d2ff;
+  border-color: rgba(0, 210, 255, 0.35);
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.2);
+}
+
+.detail-hero-pill.coin-pill.pearl {
+  background: rgba(157, 78, 221, 0.14);
+  color: #d1c8ff;
+  border-color: rgba(157, 78, 221, 0.35);
+  box-shadow: 0 0 12px rgba(157, 78, 221, 0.2);
 }
 
 .detail-hero-right {
