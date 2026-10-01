@@ -198,6 +198,68 @@ header {
   animation: rotate-loader 1s infinite linear;
 }
 
+/* Test Rig Navbar Button */
+.btn-test-rig {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.85rem;
+  background: rgba(127, 86, 218, 0.15);
+  color: var(--text-primary);
+  border: 1px solid rgba(157, 78, 221, 0.35);
+  padding: 0.65rem 1.15rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: var(--transition-smooth);
+  cursor: pointer;
+}
+
+.btn-test-rig:hover {
+  background: rgba(127, 86, 218, 0.3);
+  border-color: rgba(157, 78, 221, 0.65);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(127, 86, 218, 0.35);
+  color: #fff;
+}
+
+.btn-test-rig:active {
+  transform: translateY(1px);
+}
+
+.btn-test-rig.active {
+  background: linear-gradient(135deg, rgba(127, 86, 218, 0.45) 0%, rgba(63, 43, 150, 0.6) 100%);
+  border-color: var(--color-neon-purple);
+  box-shadow: 0 0 14px rgba(157, 78, 221, 0.45);
+  color: #fff;
+}
+
+.test-rig-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  display: inline-block;
+  transition: var(--transition-smooth);
+}
+
+.test-rig-dot.online {
+  background: var(--color-online);
+  box-shadow: 0 0 8px var(--color-online);
+}
+
+.test-rig-dot.offline {
+  background: var(--color-offline);
+  box-shadow: 0 0 8px var(--color-offline);
+}
+
+.test-rig-dot.loading {
+  background: var(--color-warning);
+  box-shadow: 0 0 8px var(--color-warning);
+  animation: pulse-loading 1.2s infinite ease-in-out;
+}
+
 /* Overview Summary Grid */
 .summary-container {
   display: grid;
@@ -630,9 +692,10 @@ header {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-md);
-  padding: 0.85rem 1.25rem;
+  padding: 0.75rem 0.85rem;
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.75fr) minmax(0, 0.75fr) minmax(0, 0.85fr) minmax(0, 1.25fr);
+  column-gap: 0.65rem;
   align-items: center;
   transition: var(--transition-smooth);
 }
@@ -646,6 +709,8 @@ header {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .gpu-index-name {
@@ -655,6 +720,7 @@ header {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .gpu-model-detail {
@@ -663,25 +729,32 @@ header {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .gpu-stat-col {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  min-width: 0;
 }
 
 .gpu-stat-label {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: var(--text-muted);
   text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .gpu-stat-val {
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
-  margin-top: 0.1rem;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 /* Temperature thresholds colors */
@@ -749,6 +822,19 @@ header {
   .controls {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+@media (max-width: 480px) {
+  .gpu-item {
+    padding: 0.65rem 0.65rem;
+    column-gap: 0.4rem;
+  }
+  .gpu-stat-label {
+    font-size: 0.58rem;
+  }
+  .gpu-stat-val {
+    font-size: 0.82rem;
   }
 }
 
@@ -1424,4 +1510,63 @@ header {
   transform: translateY(-2px);
   box-shadow: 0 4px 22px rgba(127, 86, 218, 0.55);
 }
+
+/* Test Rig Isolation Banner & Badges */
+.test-rig-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  margin-bottom: 1.5rem;
+  border-radius: var(--radius-md);
+  background: rgba(157, 78, 221, 0.12);
+  border: 1px solid rgba(157, 78, 221, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+}
+
+.test-rig-banner-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.test-rig-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.test-rig-banner-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #fff;
+  letter-spacing: -0.2px;
+}
+
+.test-rig-banner-title span {
+  color: var(--color-neon-purple);
+}
+
+.test-rig-banner-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.test-rig-badge {
+  background: rgba(157, 78, 221, 0.2);
+  color: #d1c8ff;
+  border: 1px solid rgba(157, 78, 221, 0.45);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.65rem;
+  border-radius: 50px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 

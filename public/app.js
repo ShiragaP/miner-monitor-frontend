@@ -8,9 +8,13 @@ let isFetching = false;
 let marketData = null; // cached market data (btc_revenue_per_1000ths, btc_thb, etc.)
 let lastRigResults = null; // stored rig results to re-run economics when market data updates
 let isFetchingMarket = false; // market fetch in-flight flag
+let testRigIp = '192.168.1.157:21550';
+let testRigResult = null; // isolated test rig telemetry
 
 // DOM Elements
 const btnRefresh = document.getElementById('btn-refresh-stats');
+const btnTestRig = document.getElementById('btn-test-rig');
+const testRigDot = document.getElementById('test-rig-dot');
 const headerStatusDot = document.getElementById('header-status-dot');
 const statusText = document.getElementById('status-text');
 const timerVal = document.getElementById('val-timer');
@@ -89,6 +93,50 @@ function resetTimer() {
   startTimers();
 }
 
+// Query an individual rig directly from the browser
+async function fetchSingleRigTelemetry(ip) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
+
+  const targetIp = ip.includes(':') ? ip : `${ip}:21550`;
+  const url = targetIp.startsWith('http') ? targetIp : `http://${targetIp}`;
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    clearTimeout(timeoutId);
+
+    // Read body text first to perform strict JSON checks
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error('Response is not a valid JSON object');
+    }
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response format (not a JSON object)');
+    }
+
+    return parseRigData(ip, data);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : (ip.includes('192.168.1.157') ? 'shiraga' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`));
+    const isQuantusRig = ip.includes('192.168.1.113') || ip.includes('192.168.1.103');
+    return {
+      ip,
+      name: fallbackName,
+      status: 'offline',
+      coin_key: isQuantusRig ? 'quantus' : 'pearl',
+      coin_name: isQuantusRig ? 'Quantus' : 'Pearl',
+      algorithm: isQuantusRig ? 'QPoW' : 'Pearl',
+      error: error.name === 'AbortError' ? 'Connection timed out' : error.message
+    };
+  }
+}
+
 // Fetch stats from backend API
 // Fetch config and query rigs directly from client browser
 async function fetchStats() {
@@ -96,6 +144,9 @@ async function fetchStats() {
   btnRefresh.classList.add('loading');
   headerStatusDot.className = 'status-dot loading';
   statusText.textContent = 'Updating...';
+  if (testRigDot) {
+    testRigDot.className = 'test-rig-dot loading';
+  }
 
   try {
     // 1. Get the list of rig IPs from server config
@@ -105,58 +156,30 @@ async function fetchStats() {
     }
     const config = await configResponse.json();
     const rigsList = config.rigs || [];
+    if (config.testRig) {
+      testRigIp = config.testRig;
+    }
 
     if (rigsList.length === 0) {
       updateUI([]);
       return;
     }
 
-    // 2. Query each rig directly in parallel from the browser
-    const fetchPromises = rigsList.map(async (ip) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s timeout
+    // 2. Query production rigs in parallel AND isolated test rig concurrently
+    const prodRigsPromise = Promise.all(rigsList.map(fetchSingleRigTelemetry));
+    const testRigPromise = fetchSingleRigTelemetry(testRigIp);
 
-      const targetIp = ip.includes(':') ? ip : `${ip}:21550`;
-      const url = targetIp.startsWith('http') ? targetIp : `http://${targetIp}`;
-      try {
-        const response = await fetch(url, {
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
-        clearTimeout(timeoutId);
-
-        // Read body text first to perform strict JSON checks
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          throw new Error('Response is not a valid JSON object');
-        }
-
-        if (!data || typeof data !== 'object') {
-          throw new Error('Invalid response format (not a JSON object)');
-        }
-
-        return parseRigData(ip, data);
-      } catch (error) {
-        clearTimeout(timeoutId);
-        const fallbackName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`);
-        const isQuantusRig = ip.includes('192.168.1.113') || ip.includes('192.168.1.103');
-        return {
-          ip,
-          name: fallbackName,
-          status: 'offline',
-          coin_key: isQuantusRig ? 'quantus' : 'pearl',
-          coin_name: isQuantusRig ? 'Quantus' : 'Pearl',
-          algorithm: isQuantusRig ? 'QPoW' : 'Pearl',
-          error: error.name === 'AbortError' ? 'Connection timed out' : error.message
-        };
-      }
-    });
-
-    const results = await Promise.all(fetchPromises);
+    const [results, testResult] = await Promise.all([prodRigsPromise, testRigPromise]);
     lastRigResults = results;
+    testRigResult = testResult;
+
+    // Update test rig navbar indicator
+    if (testRigDot) {
+      testRigDot.className = `test-rig-dot ${testRigResult.status === 'online' ? 'online' : 'offline'}`;
+      testRigDot.title = `Test Rig (${testRigResult.name}): ${testRigResult.status}`;
+    }
+
+    // Note: Only production rigs are passed to dashboard overview and economics
     updateUI(results);
     updateEconomics(results);
     handleRoute();
@@ -171,6 +194,9 @@ async function fetchStats() {
     headerStatusDot.style.background = 'var(--color-offline)';
     headerStatusDot.style.boxShadow = '0 0 10px var(--color-offline)';
     statusText.textContent = 'Error';
+    if (testRigDot) {
+      testRigDot.className = 'test-rig-dot offline';
+    }
     
     rigsGrid.innerHTML = `
       <div class="glass-panel" style="grid-column: 1 / -1; padding: 3rem; text-align: center; border-color: var(--color-offline);">
@@ -188,7 +214,7 @@ async function fetchStats() {
 
 // Client-side parser to extract data matching SRBMiner JSON schemas
 function parseRigData(ip, data) {
-  const defaultName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`);
+  const defaultName = ip.includes('192.168.1.201') ? 'shp01' : (ip.includes('192.168.1.103') ? 'urig3' : (ip.includes('192.168.1.157') ? 'shiraga' : `Rig-${ip.split('.').pop().split(':')[0] || ip}`));
   // Strictly use rig_name from JSON
   const name = data.rig_name || defaultName;
 
@@ -292,7 +318,7 @@ function parseRigData(ip, data) {
 
       const gpu = {
         id: dev.id !== undefined ? dev.id : (dev.device_id !== undefined ? dev.device_id : index),
-        model: dev.model || dev.name || `GPU #${index}`,
+        model: formatGpuModel(dev.model || dev.name || `GPU #${index}`),
         hashrate: hashrate,
         temp: temp,
         fan: fan,
@@ -377,6 +403,36 @@ function formatCpuModel(model) {
     .replace(/CPU\s*@\s*[\d.]+GHz/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Clean and shorten GPU model names (e.g., nvidia_geforce_rtx_3060_ti -> RTX 3060 Ti, nvidia_geforce_gtx_1660_super -> GTX 1660 Super)
+function formatGpuModel(model) {
+  if (!model) return 'GPU';
+  let m = String(model).trim();
+
+  // Strip brand prefixes like nvidia_geforce_, nvidia geforce, amd_radeon_, amd radeon
+  m = m.replace(/^nvidia[_\s]+geforce[_\s]+/i, '');
+  m = m.replace(/^amd[_\s]+radeon[_\s]+/i, '');
+  m = m.replace(/^geforce[_\s]+/i, '');
+  m = m.replace(/^radeon[_\s]+/i, '');
+  m = m.replace(/^nvidia[_\s]+/i, '');
+  m = m.replace(/^amd[_\s]+/i, '');
+
+  // Replace underscores with spaces
+  m = m.replace(/_/g, ' ');
+
+  // Standardize capitalization of known GPU series and suffixes
+  m = m
+    .replace(/\brtx\b/gi, 'RTX')
+    .replace(/\bgtx\b/gi, 'GTX')
+    .replace(/\brx\b/gi, 'RX')
+    .replace(/\bti\b/gi, 'Ti')
+    .replace(/\bsuper\b/gi, 'Super')
+    .replace(/\bxt\b/gi, 'XT')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return m || model;
 }
 
 // Update the full interface DOM
@@ -774,59 +830,119 @@ function updateEconomics(rigs) {
 function handleRoute() {
   const hash = window.location.hash || '';
   const match = hash.match(/^#\/rig\/(.+)$/);
+  const isTestRoute = (hash === '#/test-rig' || hash === '#/test');
 
   const dashboardView = document.getElementById('view-dashboard');
   const rigDetailView = document.getElementById('view-rig-detail');
+  const btnTestRigEl = document.getElementById('btn-test-rig');
 
   if (!dashboardView || !rigDetailView) return;
 
-  if (match) {
-    const rawId = decodeURIComponent(match[1]);
+  if (isTestRoute) {
+    if (btnTestRigEl) btnTestRigEl.classList.add('active');
     dashboardView.classList.add('hidden');
     rigDetailView.classList.remove('hidden');
-    renderRigDetailView(rawId);
+    renderRigDetailView('test-rig', true);
+  } else if (match) {
+    const rawId = decodeURIComponent(match[1]);
+    const isTestMatch = (
+      rawId.toLowerCase() === 'test-rig' ||
+      rawId.toLowerCase() === 'shiraga' ||
+      rawId.includes('192.168.1.157')
+    );
+    if (btnTestRigEl) {
+      if (isTestMatch) btnTestRigEl.classList.add('active');
+      else btnTestRigEl.classList.remove('active');
+    }
+    dashboardView.classList.add('hidden');
+    rigDetailView.classList.remove('hidden');
+    renderRigDetailView(rawId, isTestMatch);
   } else {
+    if (btnTestRigEl) btnTestRigEl.classList.remove('active');
     dashboardView.classList.remove('hidden');
     rigDetailView.classList.add('hidden');
   }
 }
 
-function renderRigDetailView(rawId) {
+function renderRigDetailView(rawId, isTestRig = false) {
   const container = document.getElementById('view-rig-detail');
   if (!container) return;
 
-  // 1. If rigs are still fetching on cold boot
-  if (!lastRigResults) {
-    container.innerHTML = `
-      <div class="detail-view-container">
-        <div class="detail-top-bar">
-          <div class="detail-nav-left">
-            <a href="#/" class="btn-back">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-              </svg>
-              <span>Back to Dashboard</span>
-            </a>
+  let rig = null;
+
+  if (isTestRig || rawId === 'test-rig') {
+    isTestRig = true;
+    if (!testRigResult) {
+      container.innerHTML = `
+        <div class="detail-view-container">
+          <div class="detail-top-bar">
+            <div class="detail-nav-left">
+              <a href="#/" class="btn-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <span>Back to Dashboard</span>
+              </a>
+            </div>
+          </div>
+          <div class="glass-panel" style="padding: 4rem 2rem; text-align: center;">
+            <div class="status-dot loading" style="width: 14px; height: 14px; margin: 0 auto 1.25rem auto;"></div>
+            <h3 style="color: #fff; font-size: 1.4rem; font-weight: 600; margin-bottom: 0.5rem;">Loading Test Rig Details...</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Retrieving telemetry for Test Rig (${testRigIp})</p>
           </div>
         </div>
-        <div class="glass-panel" style="padding: 4rem 2rem; text-align: center;">
-          <div class="status-dot loading" style="width: 14px; height: 14px; margin: 0 auto 1.25rem auto;"></div>
-          <h3 style="color: #fff; font-size: 1.4rem; font-weight: 600; margin-bottom: 0.5rem;">Loading Rig Details...</h3>
-          <p style="color: var(--text-muted); font-size: 0.85rem;">Retrieving telemetry for ${rawId}</p>
+      `;
+      return;
+    }
+    rig = testRigResult;
+  } else {
+    // 1. If rigs are still fetching on cold boot
+    if (!lastRigResults) {
+      container.innerHTML = `
+        <div class="detail-view-container">
+          <div class="detail-top-bar">
+            <div class="detail-nav-left">
+              <a href="#/" class="btn-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <span>Back to Dashboard</span>
+              </a>
+            </div>
+          </div>
+          <div class="glass-panel" style="padding: 4rem 2rem; text-align: center;">
+            <div class="status-dot loading" style="width: 14px; height: 14px; margin: 0 auto 1.25rem auto;"></div>
+            <h3 style="color: #fff; font-size: 1.4rem; font-weight: 600; margin-bottom: 0.5rem;">Loading Rig Details...</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Retrieving telemetry for ${rawId}</p>
+          </div>
         </div>
-      </div>
-    `;
-    return;
-  }
+      `;
+      return;
+    }
 
-  // 2. Find matching rig by name or IP
-  const query = rawId.toLowerCase().trim();
-  const rig = lastRigResults.find(r => 
-    r.name.toLowerCase() === query || 
-    r.ip.toLowerCase() === query ||
-    r.name.toLowerCase().replace(/\s+/g, '-') === query
-  );
+    // 2. Find matching rig by name or IP
+    const query = rawId.toLowerCase().trim();
+    rig = lastRigResults.find(r => 
+      r.name.toLowerCase() === query || 
+      r.ip.toLowerCase() === query ||
+      r.name.toLowerCase().replace(/\s+/g, '-') === query
+    );
+
+    // If not found in production rigs, check if it matches test rig
+    if (!rig && testRigResult) {
+      if (
+        testRigResult.name.toLowerCase() === query ||
+        testRigResult.ip.toLowerCase() === query ||
+        testRigResult.ip.toLowerCase().includes(query) ||
+        testRigResult.name.toLowerCase().replace(/\s+/g, '-') === query
+      ) {
+        rig = testRigResult;
+        isTestRig = true;
+      }
+    }
+  }
 
   if (!rig) {
     container.innerHTML = `
@@ -1129,6 +1245,18 @@ function renderRigDetailView(rawId) {
     `;
   }
 
+  const testBannerHtml = isTestRig ? `
+    <div class="test-rig-banner">
+      <div class="test-rig-banner-icon">🧪</div>
+      <div class="test-rig-banner-content">
+        <div class="test-rig-banner-title"><span>Isolated Test Rig</span> (${rig.name} &bull; ${rig.ip})</div>
+        <div class="test-rig-banner-desc">This machine is monitored independently for testing purposes. It is strictly excluded from the main dashboard overview cards, network hashrate, and daily economics calculations.</div>
+      </div>
+    </div>
+  ` : '';
+
+  const testRigBadgeHtml = isTestRig ? `<span class="test-rig-badge">🧪 Test Rig</span>` : '';
+
   container.innerHTML = `
     <div class="detail-view-container">
       <!-- Navigation Bar -->
@@ -1144,16 +1272,19 @@ function renderRigDetailView(rawId) {
           <div class="detail-breadcrumb">
             <a href="#/">Dashboard</a>
             <span>/</span>
-            <span class="detail-breadcrumb-current">${rig.name}</span>
+            <span class="detail-breadcrumb-current">${isTestRig ? `Test Rig (${rig.name})` : rig.name}</span>
           </div>
         </div>
       </div>
+
+      ${testBannerHtml}
 
       <!-- Rig Hero Panel -->
       <div class="detail-hero-panel glass-panel ${isOnline ? '' : 'offline-rig'}">
         <div class="detail-hero-left">
           <div class="detail-hero-title-row">
             <h2 class="detail-hero-name">${rig.name}</h2>
+            ${testRigBadgeHtml}
             <span class="rig-badge ${isOnline ? 'online' : 'offline'}">
               <span class="status-dot" style="background: ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; box-shadow: 0 0 6px ${isOnline ? 'var(--color-online)' : 'var(--color-offline)'}; margin-right: 0.1rem;"></span>
               ${rig.status}

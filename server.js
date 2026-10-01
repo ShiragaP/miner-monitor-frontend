@@ -23,12 +23,18 @@ const RIG_IPS = process.env.RIG_IPS
   ? process.env.RIG_IPS.split(',').map(ip => ip.trim())
   : DEFAULT_RIGS;
 
+// Test rig IP (isolated from main dashboard aggregations)
+const TEST_RIG_IP = process.env.TEST_RIG_IP || '192.168.1.157:21550';
+
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Expose configuration to the client (browser) so it knows where to query
 app.get('/api/config', (req, res) => {
-  res.json({ rigs: RIG_IPS });
+  res.json({
+    rigs: RIG_IPS,
+    testRig: TEST_RIG_IP
+  });
 });
 
 // ============================================================================
